@@ -1,0 +1,29 @@
+{
+  "name": "fueltech-master",
+  "version": "1.0.0",
+  "description": "Gestión, diagnóstico y consulta técnica de módulos y pilas (bombas) de gasolina",
+  "main": "server.js",
+  "scripts": {
+    "seed": "node seed.js",
+    "start": "node server.js",
+    "test": "node --test test/*.test.js",
+    "test:e2e": "node --test test/e2e.suite.js"
+  },
+  "dependencies": {
+    "@google/generative-ai": "^0.24.1",
+    "better-sqlite3": "^11.10.0",
+    "compression": "^1.8.1",
+    "express": "^4.21.2",
+    "express-rate-limit": "^8.5.2",
+    "helmet": "^8.3.0",
+    "htm": "^3.1.1",
+    "lucide": "^0.468.0",
+    "morgan": "^1.11.0",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
+    "three": "^0.170.0"
+  },
+  "devDependencies": {
+    "puppeteer": "^25.3.0"
+  }
+}

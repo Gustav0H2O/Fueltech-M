@@ -1,0 +1,13 @@
+node_modules/
+*.log
+.env
+.DS_Store
+fueltech.db
+fueltech.db-wal
+fueltech.db-shm
+
+stats.db
+stats.db-wal
+stats.db-shm
+
+nul
