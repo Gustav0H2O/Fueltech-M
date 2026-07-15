@@ -2,13 +2,13 @@
   
 # <span style="color: #E5E7EB;">F</span><span style="color: #E53935;">T</span> FuelTech Master
 
-**El Catálogo Definitivo de Pilas y Módulos de Gasolina para México**
+**El Catálogo Definitivo de Pilas y Módulos de Gasolina**
 
 </div>
 
 ---
 
-**FuelTech Master** es tu asistente técnico de bolsillo diseñado específicamente para mecánicos, técnicos automotrices y refaccionarias. Nuestra plataforma te permite consultar en segundos la presión exacta, las especificaciones de repuestos y alternativas compatibles para **más de 140 vehículos** del mercado mexicano.
+**FuelTech Master** es tu asistente técnico de bolsillo diseñado específicamente para mecánicos, técnicos automotrices y refaccionarias. Nuestra plataforma te permite consultar en segundos la presión exacta, las especificaciones de repuestos y alternativas compatibles para **más de 140 vehículos** del mercado.
 
 Olvida los manuales de papel y las búsquedas interminables en internet. Todo lo que necesitas para un diagnóstico preciso del sistema de combustible está aquí.
 
