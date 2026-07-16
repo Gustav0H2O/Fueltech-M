@@ -1,5 +1,6 @@
 // FuelTech Master — API REST
 const path = require('path');
+const fs = require('fs');
 const crypto = require('crypto');
 const express = require('express');
 const helmet = require('helmet');
@@ -10,6 +11,15 @@ const Database = require('better-sqlite3');
 const { GoogleGenerativeAI } = require('@google/generative-ai');
 
 const PROD = process.env.NODE_ENV === 'production';
+
+/* URL base pública para canonical, sitemap y Open Graph.
+   Configurable sin tocar código: BASE_URL=https://tudominio.com
+   Cámbiala cuando conectes tu dominio propio. */
+const BASE_URL = (process.env.BASE_URL || 'https://fueltech-master.onrender.com').replace(/\/+$/, '');
+
+/* Modelo de IA configurable. OJO: 'gemini-3.5-flash' NO es un id válido de Google
+   y hacía que el chat respondiera 502. Default a un modelo real y estable. */
+const GEMINI_MODEL = process.env.GEMINI_MODEL || 'gemini-1.5-flash';
 
 /* ---------- Saneo estricto de parámetros ----------
    better-sqlite3 lanza si se le pasa NaN como parámetro → un query malicioso
@@ -34,6 +44,13 @@ function createApp(db, statsDb) {
   const app = express();
   app.disable('x-powered-by');
 
+  // Nonce por petición: permite <script> inline en las páginas renderizadas por el
+  // servidor (JSON-LD para SEO) sin abrir la CSP con 'unsafe-inline'.
+  app.use((req, res, next) => {
+    res.locals.cspNonce = crypto.randomBytes(16).toString('base64');
+    next();
+  });
+
   const dbDump = db.prepare(`SELECT b.name as brand, v.model, v.year_from, v.year_to, v.engine, v.rail_pressure_psi_min, v.rail_pressure_psi_max FROM vehicles v JOIN brands b on v.brand_id=b.id`).all();
   const globalDBContext = 'Base de Datos (Vehículos soportados): ' + dbDump.map(r => `${r.brand} ${r.model} ${r.year_from}-${r.year_to} ${r.engine} PSI:${r.rail_pressure_psi_min}-${r.rail_pressure_psi_max}`).join('; ');
   // trust proxy ajustable para tests
@@ -46,7 +63,8 @@ function createApp(db, statsDb) {
         scriptSrc: [
           "'self'",
           "'sha256-F9dVDQv5gEOHF0o9y7tZzMIBD0kCrcE0up8c/8KomQE='",
-          "'sha256-7GhNN277uMGXe9dIUeIQSUgq8nBXJUEdmoyu+v0yd9c='"
+          "'sha256-7GhNN277uMGXe9dIUeIQSUgq8nBXJUEdmoyu+v0yd9c='",
+          (req, res) => `'nonce-${res.locals.cspNonce}'`
         ],
         styleSrc: ["'self'", "'unsafe-inline'", 'https://fonts.googleapis.com'],
         fontSrc: ["'self'", 'https://fonts.gstatic.com'],
@@ -100,6 +118,149 @@ function createApp(db, statsDb) {
     const today = statsDb.prepare(`SELECT COUNT(*) c FROM visit_days WHERE day = ?`).get(day).c;
     res.set('Cache-Control', 'no-store');
     res.json({ total: getTotal(), today });
+  });
+
+  /* ---------- SEO: páginas renderizadas en servidor + sitemap ----------
+     La app es un SPA; sin esto Google solo ve UNA url. Aquí generamos una url
+     indexable por vehículo con <title>, meta, canonical, Open Graph, datos
+     estructurados (JSON-LD) y contenido rastreable — todo sin build step. */
+  const INDEX_HTML = fs.readFileSync(path.join(__dirname, 'public', 'index.html'), 'utf8');
+  const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) =>
+    ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+  const slugify = (s) => String(s).normalize('NFD').replace(/[̀-ͯ]/g, '')
+    .toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, '');
+  const vehicleSlug = (v) => `${slugify(v.brand)}-${slugify(v.model)}-${v.year_from}-${v.year_to}-${v.id}`;
+
+  const HOME_TITLE = 'FuelTech Master — Presión de riel (PSI/Bar), módulos y pilas de gasolina';
+  const HOME_DESC = 'Consulta técnica gratis para mecánicos de Latinoamérica: presión de riel (PSI/Bar), ubicación del módulo y pilas (bombas) de gasolina compatibles OEM y alternativas. Diagnóstico del sistema de combustible al instante.';
+
+  // Inyecta metadatos/contenido en la plantilla index.html sin romper la CSP.
+  function renderShell({ title, description, canonicalPath = '/', rootContent = '', jsonLd = null, vehicleId = null, nonce = '' }) {
+    const canonical = BASE_URL + canonicalPath;
+    let html = INDEX_HTML
+      .replace(/<title>[\s\S]*?<\/title>/, `<title>${esc(title)}</title>`)
+      .replace(/<meta name="description" content="[^"]*">/, `<meta name="description" content="${esc(description)}">`)
+      .replace(/<link rel="canonical"[^>]*>/, `<link rel="canonical" href="${esc(canonical)}">`)
+      .replace(/<meta property="og:title" content="[^"]*">/, `<meta property="og:title" content="${esc(title)}">`)
+      .replace(/<meta property="og:description" content="[^"]*">/, `<meta property="og:description" content="${esc(description)}">`)
+      .replace(/<meta property="og:url" content="[^"]*">/, `<meta property="og:url" content="${esc(canonical)}">`)
+      .replace(/<meta name="twitter:title" content="[^"]*">/, `<meta name="twitter:title" content="${esc(title)}">`)
+      .replace(/<meta name="twitter:description" content="[^"]*">/, `<meta name="twitter:description" content="${esc(description)}">`);
+    if (jsonLd) {
+      html = html.replace(/<script type="application\/ld\+json">[\s\S]*?<\/script>/,
+        `<script type="application/ld+json"${nonce ? ` nonce="${nonce}"` : ''}>${JSON.stringify(jsonLd)}</script>`);
+    }
+    if (vehicleId != null) html = html.replace('<div id="root">', `<div id="root" data-vehicle="${vehicleId}">`);
+    if (rootContent) {
+      html = html.replace(/<!--ROOT-CONTENT-START-->[\s\S]*?<!--ROOT-CONTENT-END-->/,
+        `<!--ROOT-CONTENT-START-->${rootContent}<!--ROOT-CONTENT-END-->`);
+    }
+    return html;
+  }
+
+  // Registro de búsquedas SIN resultado → hoja de ruta de datos guiada por demanda real.
+  statsDb.exec(`CREATE TABLE IF NOT EXISTS missing_searches (
+    day TEXT NOT NULL, q TEXT NOT NULL, count INTEGER NOT NULL DEFAULT 0,
+    PRIMARY KEY (day, q)) WITHOUT ROWID`);
+  const bumpMissing = statsDb.prepare(`INSERT INTO missing_searches (day, q, count) VALUES (?, ?, 1)
+    ON CONFLICT(day, q) DO UPDATE SET count = count + 1`);
+
+  const vehicleForPage = db.prepare(`
+    SELECT v.id, b.name AS brand, v.model, v.year_from, v.year_to, v.engine,
+           it.name AS injection_name, v.rail_pressure_psi_min, v.rail_pressure_psi_max, v.notes
+    FROM vehicles v JOIN brands b ON b.id = v.brand_id
+    JOIN injection_types it ON it.id = v.injection_type_id WHERE v.id = ?`);
+
+  app.get('/', (req, res) => {
+    res.set('Cache-Control', 'public, max-age=300');
+    res.type('html').send(renderShell({
+      title: HOME_TITLE, description: HOME_DESC, canonicalPath: '/', nonce: res.locals.cspNonce,
+      jsonLd: {
+        '@context': 'https://schema.org', '@type': 'WebApplication', name: 'FuelTech Master',
+        applicationCategory: 'AutomotiveApplication', operatingSystem: 'Web', inLanguage: 'es',
+        description: HOME_DESC, url: BASE_URL + '/',
+        offers: { '@type': 'Offer', price: '0', priceCurrency: 'USD' }
+      }
+    }));
+  });
+
+  app.get('/vehiculo/:slug', (req, res, next) => {
+    const id = toInt(String(req.params.slug).split('-').pop(), 1, 1e9);
+    if (id === null) return next();
+    const v = vehicleForPage.get(id);
+    if (!v) return next();
+    const canonicalSlug = vehicleSlug(v);
+    if (req.params.slug !== canonicalSlug) return res.redirect(301, `/vehiculo/${canonicalSlug}`);
+
+    const psi = `${v.rail_pressure_psi_min}–${v.rail_pressure_psi_max}`;
+    const bar = `${psiToBar(v.rail_pressure_psi_min)}–${psiToBar(v.rail_pressure_psi_max)}`;
+    const name = `${v.brand} ${v.model} ${v.year_from}-${v.year_to}`;
+    const title = `Presión de combustible ${name}: ${psi} PSI | FuelTech Master`;
+    const description = `${v.brand} ${v.model} (${v.year_from}-${v.year_to}, ${v.engine}, inyección ${v.injection_name}): presión de riel ${psi} PSI (${bar} bar), ubicación del módulo y pilas de gasolina compatibles OEM y alternativas.`;
+
+    const mods = db.prepare(`SELECT m.code, m.name, m.regulated_psi, m.flow_lph, vm.location_text
+      FROM vehicle_modules vm JOIN fuel_modules m ON m.id = vm.module_id WHERE vm.vehicle_id = ?`).all(v.id);
+    const pumps = db.prepare(`SELECT DISTINCT p.code, p.manufacturer FROM vehicle_modules vm
+      JOIN module_pumps mp ON mp.module_id = vm.module_id JOIN fuel_pumps p ON p.id = mp.pump_id
+      WHERE vm.vehicle_id = ?`).all(v.id);
+
+    const modHtml = mods.map(m => `<li><strong>${esc(m.code)}</strong> — ${esc(m.name)}. Presión regulada ${m.regulated_psi} PSI, flujo ${m.flow_lph} LPH. Ubicación: ${esc(m.location_text)}.</li>`).join('');
+    const pumpHtml = pumps.map(p => `<li>${esc(p.code)} · ${esc(p.manufacturer)}</li>`).join('');
+
+    const rootContent = `<main style="max-width:760px;margin:0 auto;padding:40px 22px;color:#E5E7EB;font-family:Montserrat,system-ui,sans-serif;line-height:1.6">
+      <p style="font:700 11px/1 sans-serif;letter-spacing:2px;text-transform:uppercase;color:#979EA7">FuelTech Master · Ficha técnica</p>
+      <h1 style="font-size:26px;margin:10px 0 4px">${esc(name)} — Presión de combustible</h1>
+      <p style="color:#B7BFC9">${esc(v.engine)} · Inyección ${esc(v.injection_name)}</p>
+      <p style="font-size:30px;font-weight:800;margin:16px 0">${esc(psi)} PSI <span style="font-size:14px;font-weight:400;color:#979EA7">(${esc(bar)} bar) en riel / flauta de inyectores</span></p>
+      ${modHtml ? `<h2 style="font-size:16px;color:#E53935;margin-top:24px">Módulo de combustible</h2><ul>${modHtml}</ul>` : ''}
+      ${pumpHtml ? `<h2 style="font-size:16px;color:#E53935;margin-top:24px">Pilas (bombas) de gasolina compatibles</h2><ul>${pumpHtml}</ul>` : ''}
+      ${v.notes ? `<p style="color:#B7BFC9;margin-top:16px">${esc(v.notes)}</p>` : ''}
+      <p style="margin-top:28px"><a href="/vehiculo/${canonicalSlug}" style="color:#E53935;font-weight:700">Abrir herramienta interactiva (visor 3D, chat y más) →</a></p>
+      <p style="margin-top:8px"><a href="/vehiculos" style="color:#979EA7">Ver todos los vehículos del catálogo</a></p>
+    </main>`;
+
+    const faq = [{ q: `¿Qué presión de combustible necesita un ${name}?`,
+      a: `La presión de riel del ${name} (${v.engine}, inyección ${v.injection_name}) es de ${psi} PSI (${bar} bar).` }];
+    if (mods[0]) faq.push({ q: `¿Dónde está el módulo de gasolina del ${name}?`, a: mods[0].location_text });
+    if (pumps.length) faq.push({ q: `¿Qué pilas de gasolina sirven para un ${name}?`, a: `Compatibles: ${pumps.map(p => p.code).join(', ')}.` });
+
+    res.set('Cache-Control', 'public, max-age=600');
+    res.type('html').send(renderShell({
+      title, description, canonicalPath: `/vehiculo/${canonicalSlug}`, rootContent, vehicleId: v.id, nonce: res.locals.cspNonce,
+      jsonLd: { '@context': 'https://schema.org', '@type': 'FAQPage', inLanguage: 'es',
+        mainEntity: faq.map(f => ({ '@type': 'Question', name: f.q, acceptedAnswer: { '@type': 'Answer', text: f.a } })) }
+    }));
+  });
+
+  app.get('/vehiculos', (req, res) => {
+    const rows = db.prepare(`SELECT v.id, b.name AS brand, v.model, v.year_from, v.year_to, v.rail_pressure_psi_max
+      FROM vehicles v JOIN brands b ON b.id = v.brand_id ORDER BY b.name, v.model, v.year_from`).all();
+    const items = rows.map(v => `<li><a href="/vehiculo/${vehicleSlug(v)}" style="color:#E5E7EB;text-decoration:none">${esc(v.brand)} ${esc(v.model)} ${v.year_from}-${v.year_to} — ${v.rail_pressure_psi_max} PSI</a></li>`).join('');
+    const rootContent = `<main style="max-width:820px;margin:0 auto;padding:40px 22px;color:#E5E7EB;font-family:Montserrat,system-ui,sans-serif">
+      <h1 style="font-size:24px">Catálogo de presión de combustible por vehículo</h1>
+      <p style="color:#B7BFC9">Presión de riel, módulo y pilas de gasolina compatibles para ${rows.length} vehículos de Latinoamérica.</p>
+      <ul style="columns:2;column-gap:28px;margin-top:16px;line-height:2;padding-left:18px">${items}</ul>
+    </main>`;
+    res.set('Cache-Control', 'public, max-age=600');
+    res.type('html').send(renderShell({
+      title: 'Catálogo de vehículos — Presión de combustible | FuelTech Master',
+      description: 'Lista completa de vehículos con su presión de riel (PSI/Bar), módulo y pilas de gasolina compatibles OEM y alternativas.',
+      canonicalPath: '/vehiculos', rootContent, nonce: res.locals.cspNonce
+    }));
+  });
+
+  app.get('/sitemap.xml', (req, res) => {
+    const rows = db.prepare(`SELECT v.id, b.name AS brand, v.model, v.year_from, v.year_to
+      FROM vehicles v JOIN brands b ON b.id = v.brand_id`).all();
+    const locs = [`${BASE_URL}/`, `${BASE_URL}/vehiculos`, ...rows.map(v => `${BASE_URL}/vehiculo/${vehicleSlug(v)}`)];
+    res.type('application/xml').set('Cache-Control', 'public, max-age=3600').send(
+      `<?xml version="1.0" encoding="UTF-8"?>\n<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n` +
+      locs.map(u => `  <url><loc>${esc(u)}</loc></url>`).join('\n') + `\n</urlset>\n`);
+  });
+
+  app.get('/robots.txt', (req, res) => {
+    res.type('text/plain').set('Cache-Control', 'public, max-age=3600').send(
+      `User-agent: *\nAllow: /\nDisallow: /api/\n\nSitemap: ${BASE_URL}/sitemap.xml\n`);
   });
 
   app.use(express.static(path.join(__dirname, 'public'), {
@@ -163,6 +324,13 @@ function createApp(db, statsDb) {
       LIMIT @limit OFFSET @offset
     `).all(params);
 
+    // Si una búsqueda por modelo no devuelve nada, la registramos: es la mejor
+    // señal de qué vehículos agregar al catálogo (demanda real insatisfecha).
+    if (rows.length === 0 && typeof model === 'string' && model.trim()) {
+      try { bumpMissing.run(new Date().toISOString().slice(0, 10), model.trim().slice(0, 60).toLowerCase()); }
+      catch (e) { /* no crítico */ }
+    }
+
     res.json(rows.map(r => ({
       ...r,
       data_verified: !!r.data_verified,
@@ -204,6 +372,7 @@ function createApp(db, statsDb) {
     res.set('Cache-Control', 'no-store');
     res.json({
       id: v.id,
+      slug: vehicleSlug(v),
       brand: v.brand,
       model: v.model,
       years: `${v.year_from}–${v.year_to}`,
@@ -310,7 +479,7 @@ function createApp(db, statsDb) {
     }
 
     // Validar parámetros
-    const { message, history, vehicleId } = req.body;
+    const { message, history, vehicleId, deviceId } = req.body;
 
     // Validar mensaje
     if (!message || typeof message !== 'string' || message.trim().length === 0) {
@@ -320,7 +489,20 @@ function createApp(db, statsDb) {
 
     try {
       const day = new Date().toISOString().slice(0, 10);
-      const actualDeviceId = crypto.createHash('sha256').update(req.ip).digest('hex');
+      // Límite por DISPOSITIVO (así un taller con varios celulares detrás del mismo
+      // router no comparte un solo cupo), con un techo por IP como red de seguridad
+      // contra deviceId falsificados.
+      const ipHash = crypto.createHash('sha256').update(req.ip).digest('hex');
+      const validDevice = typeof deviceId === 'string' && /^[a-f0-9]{16,64}$/.test(deviceId);
+      const actualDeviceId = validDevice ? `d:${deviceId}` : `ip:${ipHash}`;
+      const ipCapKey = `ipcap:${ipHash}`;
+      const IP_DAILY_CEILING = 30;
+      if ((getChatCount.get(day, ipCapKey)?.count || 0) >= IP_DAILY_CEILING) {
+        return res.json({
+          response: '', remaining: 0, limitReached: true,
+          message: 'Se alcanzó el límite diario de consultas desde esta red. Vuelve mañana o explora el catálogo directamente.'
+        });
+      }
       const row = getChatCount.get(day, actualDeviceId);
       const used = row ? row.count : 0;
       const remaining = Math.max(0, CHAT_DAILY_LIMIT - used);
@@ -362,7 +544,7 @@ ${globalDBContext}
 ${dbContext}`;
 
       const model = genAI.getGenerativeModel({
-        model: 'gemini-3.5-flash',
+        model: GEMINI_MODEL,
         systemInstruction: sysPrompt,
         generationConfig: { maxOutputTokens: 1000, temperature: 0.3 }
       });
@@ -378,6 +560,7 @@ ${dbContext}`;
       const response = result.response.text().slice(0, 3000);
 
       bumpChatCount.run(day, actualDeviceId);
+      bumpChatCount.run(day, ipCapKey);
 
       res.json({ response, remaining: remaining > 0 ? remaining - 1 : 0 });
     } catch (err) {
@@ -405,6 +588,7 @@ if (require.main === module) {
 
   const statsDb = new Database(path.join(__dirname, 'stats.db'));
   statsDb.pragma('journal_mode = WAL');
+  statsDb.pragma('wal_autocheckpoint = 200');
   statsDb.exec(`
     CREATE TABLE IF NOT EXISTS visit_days (
       day          TEXT NOT NULL,

@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-label="FuelTech Master">
+  <rect width="512" height="512" fill="#0D1117"/>
+  <rect x="40" y="40" width="432" height="432" rx="72" fill="#11161d"/>
+  <g transform="skewX(-8)" transform-origin="256 256">
+    <text x="238" y="342" font-family="Montserrat, Arial, sans-serif" font-weight="800" font-size="248" text-anchor="middle">
+      <tspan fill="#E5E7EB">F</tspan><tspan fill="#E53935">T</tspan>
+    </text>
+  </g>
+</svg>

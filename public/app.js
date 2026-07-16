@@ -105,6 +105,22 @@ function VehicleDetail({ id }) {
   const psiText = `${v.rail_pressure.psi_min}–${v.rail_pressure.psi_max}`;
   const multiModule = v.modules.length > 1;
 
+  // Compartir la ficha = distribución gratis (cada envío por WhatsApp trae usuarios nuevos)
+  const shareUrl = `${location.origin}/vehiculo/${v.slug || ''}`;
+  const shareMsg = `${v.brand} ${v.model} — ${psiText} PSI. Ficha técnica en FuelTech Master:`;
+  const shareWhatsApp = () => window.open(`https://wa.me/?text=${encodeURIComponent(shareMsg + ' ' + shareUrl)}`, '_blank', 'noopener');
+  const shareNative = async () => {
+    try {
+      if (navigator.share) await navigator.share({ title: 'FuelTech Master', text: shareMsg, url: shareUrl });
+      else { await navigator.clipboard.writeText(shareUrl); }
+    } catch (e) { /* cancelado por el usuario */ }
+  };
+  const shareBtn = {
+    display: 'inline-flex', alignItems: 'center', gap: '7px', font: '700 11px var(--font)',
+    letterSpacing: '1px', textTransform: 'uppercase', background: 'transparent', color: 'var(--red)',
+    border: '1px solid var(--red-dim)', borderRadius: '2px', padding: '9px 14px', cursor: 'pointer'
+  };
+
   return html`
     <div>
       <div class="panel">
@@ -119,6 +135,11 @@ function VehicleDetail({ id }) {
           <small> (${v.rail_pressure.bar_min}–${v.rail_pressure.bar_max} bar) en flauta / riel de inyectores</small>
         </div>
         ${v.notes && html`<div class="alert"><${Icon} name="AlertTriangle" size=${14} />${v.notes}</div>`}
+        <div style=${{ display: 'flex', flexWrap: 'wrap', gap: '8px', marginTop: '14px' }}>
+          <button type="button" onClick=${shareWhatsApp} style=${shareBtn} title="Compartir esta ficha por WhatsApp"><${Icon} name="Share2" size=${14} /> Compartir</button>
+          <button type="button" onClick=${shareNative} style=${shareBtn} title="Copiar enlace de esta ficha"><${Icon} name="Link2" size=${14} /> Copiar enlace</button>
+          <button type="button" onClick=${() => window.print()} style=${shareBtn} title="Imprimir o guardar como PDF"><${Icon} name="Printer" size=${14} /> Imprimir / PDF</button>
+        </div>
       </div>
 
       ${v.modules.map((m, i) => html`
@@ -180,6 +201,10 @@ const LogoSVG = () => html`
 /* Lee filtros y vehículo seleccionado desde la URL para que una búsqueda o ficha sea compartible/marcable */
 function readURLState() {
   const p = new URLSearchParams(location.search);
+  // En las páginas SEO (/vehiculo/slug) el servidor inyecta data-vehicle en #root,
+  // así la app arranca directo en ese vehículo aunque no haya ?v= en la URL.
+  const rootEl = document.getElementById('root');
+  const dataV = rootEl && rootEl.dataset ? rootEl.dataset.vehicle : '';
   return {
     filters: {
       brand_id: p.get('brand_id') || '',
@@ -188,7 +213,7 @@ function readURLState() {
       injection_type_id: p.get('injection_type_id') || '',
       order_by: p.get('order_by') || ''
     },
-    selected: p.get('v') ? Number(p.get('v')) : null,
+    selected: p.get('v') ? Number(p.get('v')) : (dataV ? Number(dataV) : null),
   };
 }
 
@@ -418,13 +443,18 @@ function App() {
     });
   }, [results]);
 
-  // mantiene la búsqueda/ficha actual reflejada en la URL para poder compartirla o recargar sin perderla
+  // mantiene la búsqueda/ficha actual reflejada en la URL para poder compartirla o recargar sin perderla.
+  // En la PRIMERA carga no reescribimos la URL: así se conserva el enlace bonito /vehiculo/... con el
+  // que llegó el usuario (importante para SEO y para compartir).
+  const urlSyncedOnce = useRef(false);
   useEffect(() => {
+    if (!urlSyncedOnce.current) { urlSyncedOnce.current = true; return; }
     const qs = new URLSearchParams(Object.entries(filters).filter(([, v]) => v));
     if (selected) qs.set('v', selected);
     const next = qs.toString();
-    const url = next ? `${location.pathname}?${next}` : location.pathname;
-    // Si la URL realmente cambió, hacemos pushState para que funcione el "Atrás"
+    // desde una página /vehiculo/... la app pasa a usar URLs de sesión con base "/"
+    const base = location.pathname.startsWith('/vehiculo') ? '/' : location.pathname;
+    const url = next ? `${base}?${next}` : base;
     if (url !== location.pathname + location.search) {
       history.pushState(null, '', url);
     }
@@ -579,3 +609,9 @@ function App() {
 }
 
 ReactDOM.createRoot(document.getElementById('root')).render(html`<${App} />`);
+
+// PWA: registra el service worker (offline + instalable). Estrategia network-first,
+// sin riesgo de servir versiones viejas del código.
+if ('serviceWorker' in navigator) {
+  window.addEventListener('load', () => navigator.serviceWorker.register('/sw.js').catch(() => {}));
+}

@@ -9,3 +9,12 @@ services:
     envVars:
       - key: NODE_ENV
         value: production
+      # Cámbiala por tu dominio propio cuando lo conectes (afecta canonical, sitemap y Open Graph).
+      - key: BASE_URL
+        value: https://fueltech-master.onrender.com
+      # Modelo de IA (Gemini). Ajusta solo si tu cuenta tiene acceso a otro id válido.
+      - key: GEMINI_MODEL
+        value: gemini-1.5-flash
+      # La API key del chat se configura como secreto en el panel de Render (no en texto plano aquí).
+      - key: GEMINI_API_KEY
+        sync: false

@@ -1,0 +1,18 @@
+{
+  "name": "FuelTech Master — Presión, módulos y pilas de gasolina",
+  "short_name": "FuelTech",
+  "description": "Consulta técnica de presión de riel (PSI/Bar), módulos y pilas de gasolina compatibles para mecánicos de Latinoamérica.",
+  "lang": "es",
+  "dir": "ltr",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "orientation": "any",
+  "background_color": "#0D1117",
+  "theme_color": "#0D1117",
+  "categories": ["utilities", "productivity", "education"],
+  "icons": [
+    { "src": "/icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any" },
+    { "src": "/icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "maskable" }
+  ]
+}
