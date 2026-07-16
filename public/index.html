@@ -138,12 +138,14 @@
   }
 
   .search-pane {
-    width: 480px; flex: none; position: sticky; top: 0; height: 100vh;
+    width: 480px; flex: none; position: sticky; top: 0; 
+    height: 100vh; max-height: 100dvh;
     background: var(--bg-glass); border-right: 1px solid var(--border);
     display: flex; flex-direction: column;
     /* clamp en vez de un salto brusco por breakpoint: se achica de forma continua
        en cualquier ancho, incluyendo tallas intermedias que ningún breakpoint cubre */
     padding: clamp(20px, 6vw, 36px) clamp(14px, 5vw, 34px) 24px;
+    overflow-y: auto; /* Permite scroll para ver el footer */
   }
   .search-pane .logo-block { display: flex; align-items: center; justify-content: center; gap: 12px; margin-bottom: 38px; flex: none; }
   .logo-ft { width: clamp(32px, 9vw, 44px); height: clamp(32px, 9vw, 44px); flex: none; }
@@ -320,6 +322,15 @@
   .filters button:hover { color: var(--red); border-color: var(--red-dim); background: rgba(229,57,53,.06); }
   .filters button:active { transform: translateY(1px); }
 
+  /* ---------- inputs genéricos (calculadoras) ---------- */
+  .styled-input {
+    width: 100%; background: var(--input-bg); color: var(--text); font: 500 14px var(--font);
+    border: 1px solid var(--border); border-radius: 2px; padding: 10px 12px; outline: none;
+    transition: border-color .2s, box-shadow .2s;
+  }
+  .styled-input:focus-visible { border-color: var(--red); box-shadow: 0 0 0 3px rgba(229,57,53,.12); }
+  .styled-input::placeholder { color: var(--muted); opacity: .7; }
+
   .badge {
     font: 600 10.5px var(--font); letter-spacing: 1.2px; text-transform: uppercase;
     padding: 4px 10px; border-radius: 2px; border: 1px solid; white-space: nowrap;
@@ -422,6 +433,7 @@
   .app-footer {
     margin-top: 20px; padding-top: 16px; border-top: 1px solid var(--border);
     color: var(--muted); font: 400 10.5px var(--font); letter-spacing: .5px;
+    padding-bottom: 40px; /* Forzar espacio extra al fondo para asegurar que el correo nunca quede oculto */
   }
   .app-footer .footer-brand {
     font: 700 11px var(--font); letter-spacing: 2px; text-transform: uppercase;
@@ -598,7 +610,7 @@
 <script src="/vendor/htm.js"></script>
 <script src="/vendor/lucide.js"></script>
 <script src="fx.js"></script>
-<script type="module" src="three3d.js"></script>
-<script src="app.js"></script>
+<script type="module" src="three3d.js?v=2"></script>
+<script src="app.js?v=2"></script>
 </body>
 </html>

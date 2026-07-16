@@ -421,45 +421,63 @@ function Calculators() {
   
   const reqLph = hp ? Math.ceil(hp * (isTurbo ? 0.47 : 0.38)) : 0;
 
+  const innerBoxStyle = {
+    background: 'var(--panel2)', 
+    border: '1px solid var(--border)', 
+    borderRadius: '6px', 
+    padding: '20px',
+    display: 'flex',
+    flexDirection: 'column'
+  };
+
   return html`
-    <div style=${{ maxWidth: '600px', margin: '0 auto', padding: '16px' }}>
+    <div style=${{ maxWidth: '760px', margin: '0 auto' }}>
       <div class="panel">
         <div class="vh-head">
           <h2><${Icon} name="Calculator" size=${20} /> Calculadoras Técnicas</h2>
-          <p class="muted mt">Herramientas rápidas de diagnóstico de taller.</p>
+          <p class="muted mt">Herramientas rápidas de diagnóstico para uso en taller.</p>
         </div>
 
         <div class="grid2 mt" style=${{ marginTop: '24px' }}>
           <!-- Conversor PSI/Bar -->
-          <div class="panel" style=${{ background: 'var(--bg)' }}>
-            <h3 style=${{ fontSize: '14px', marginBottom: '12px' }}>Conversor de Presión</h3>
-            <div style=${{ display: 'flex', gap: '12px', alignItems: 'center' }}>
-              <div style=${{ flex: 1 }}>
-                <label class="muted" style=${{ display: 'block', fontSize: '11px', marginBottom: '4px' }}>PSI</label>
-                <input type="number" value=${psi} onChange=${onPsi} placeholder="43.5" style=${{ width: '100%', padding: '8px', borderRadius: '4px', border: '1px solid var(--border)', background: 'var(--card)', color: 'var(--text)' }} />
+          <div style=${innerBoxStyle}>
+            <h3 style=${{ fontSize: '14.5px', marginBottom: '16px', display: 'flex', alignItems: 'center', gap: '8px' }}>
+              <${Icon} name="ArrowRightLeft" size=${16} /> Conversor de Presión
+            </h3>
+            <div style=${{ display: 'flex', flexWrap: 'wrap', gap: '14px', alignItems: 'end', marginTop: 'auto' }}>
+              <div style=${{ flex: '1 1 100px' }}>
+                <label class="muted" style=${{ display: 'block', fontSize: '11px', letterSpacing: '1px', textTransform: 'uppercase', marginBottom: '6px' }}>PSI</label>
+                <input type="number" class="styled-input" value=${psi} onChange=${onPsi} placeholder="43.5" />
               </div>
-              <div style=${{ color: 'var(--border-hi)', marginTop: '16px' }}><${Icon} name="ArrowRightLeft" size=${16} /></div>
-              <div style=${{ flex: 1 }}>
-                <label class="muted" style=${{ display: 'block', fontSize: '11px', marginBottom: '4px' }}>Bar</label>
-                <input type="number" value=${bar} onChange=${onBar} placeholder="3.0" style=${{ width: '100%', padding: '8px', borderRadius: '4px', border: '1px solid var(--border)', background: 'var(--card)', color: 'var(--text)' }} />
+              <div style=${{ color: 'var(--border-hi)', paddingBottom: '10px', display: 'flex', justifyContent: 'center' }}>
+                <${Icon} name="ArrowRight" size=${16} />
+              </div>
+              <div style=${{ flex: '1 1 100px' }}>
+                <label class="muted" style=${{ display: 'block', fontSize: '11px', letterSpacing: '1px', textTransform: 'uppercase', marginBottom: '6px' }}>Bar</label>
+                <input type="number" class="styled-input" value=${bar} onChange=${onBar} placeholder="3.0" />
               </div>
             </div>
           </div>
 
           <!-- Flujo requerido -->
-          <div class="panel" style=${{ background: 'var(--bg)' }}>
-            <h3 style=${{ fontSize: '14px', marginBottom: '12px' }}>Flujo Requerido (Estimado)</h3>
-            <div style=${{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+          <div style=${innerBoxStyle}>
+            <h3 style=${{ fontSize: '14.5px', marginBottom: '16px', display: 'flex', alignItems: 'center', gap: '8px' }}>
+              <${Icon} name="Activity" size=${16} /> Flujo Requerido (LPH)
+            </h3>
+            <div style=${{ display: 'flex', flexDirection: 'column', gap: '14px', marginTop: 'auto' }}>
               <div>
-                <label class="muted" style=${{ display: 'block', fontSize: '11px', marginBottom: '4px' }}>Caballos de fuerza del motor (HP)</label>
-                <input type="number" value=${hp} onChange=${e => setHp(e.target.value)} placeholder="Ej: 150" style=${{ width: '100%', padding: '8px', borderRadius: '4px', border: '1px solid var(--border)', background: 'var(--card)', color: 'var(--text)' }} />
+                <label class="muted" style=${{ display: 'block', fontSize: '11px', letterSpacing: '1px', textTransform: 'uppercase', marginBottom: '6px' }}>Caballos de fuerza (HP)</label>
+                <input type="number" class="styled-input" value=${hp} onChange=${e => setHp(e.target.value)} placeholder="Ej: 150" />
               </div>
-              <label style=${{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '13px', cursor: 'pointer', color: 'var(--text)' }}>
-                <input type="checkbox" checked=${isTurbo} onChange=${e => setIsTurbo(e.target.checked)} />
-                Turbo / Supercargado
+              <label style=${{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '13px', cursor: 'pointer', color: 'var(--text)', padding: '4px 0' }}>
+                <input type="checkbox" checked=${isTurbo} onChange=${e => setIsTurbo(e.target.checked)} style=${{ width: '16px', height: '16px', accentColor: 'var(--red)' }} />
+                Motor Turbo / Supercargado
               </label>
             </div>
-            ${reqLph > 0 ? html`<div class="alert blue mt" style=${{ marginTop: '16px' }}><${Icon} name="Info" size=${14} /> La bomba debe entregar mín. <b>${reqLph} LPH</b> a presión de trabajo.</div>` : ''}
+            ${reqLph > 0 ? html`
+              <div class="alert blue" style=${{ marginTop: '16px' }}>
+                <${Icon} name="Info" size=${14} /> La pila debe entregar mínimo <b>${reqLph} LPH</b> a la presión de trabajo especificada.
+              </div>` : ''}
           </div>
         </div>
       </div>
