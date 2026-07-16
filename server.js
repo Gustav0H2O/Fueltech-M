@@ -158,18 +158,32 @@ function createApp(db, statsDb) {
   const HOME_TITLE = 'FuelTech Master — Presión de riel (PSI/Bar), módulos y pilas de gasolina';
   const HOME_DESC = 'Consulta técnica gratis para mecánicos de Latinoamérica: presión de riel (PSI/Bar), ubicación del módulo y pilas (bombas) de gasolina compatibles OEM y alternativas. Diagnóstico del sistema de combustible al instante.';
 
+  // Imágenes OG disponibles (generadas por `npm run og`). Se leen una vez al arrancar.
+  let OG_FILES = new Set();
+  try { OG_FILES = new Set(fs.readdirSync(path.join(__dirname, 'public', 'og'))); } catch (e) { /* aún no hay imágenes OG */ }
+  const DEFAULT_OG = OG_FILES.has('default.png') ? '/og/default.png' : null;
+  const ogForVehicle = (id) => (OG_FILES.has(id + '.png') ? '/og/' + id + '.png' : null);
+
   // Inyecta metadatos/contenido en la plantilla index.html sin romper la CSP.
-  function renderShell({ title, description, canonicalPath = '/', rootContent = '', jsonLd = null, vehicleId = null, nonce = '' }) {
+  function renderShell({ title, description, canonicalPath = '/', rootContent = '', jsonLd = null, vehicleId = null, nonce = '', ogImage = null }) {
     const canonical = BASE_URL + canonicalPath;
+    const img = ogImage || DEFAULT_OG;
     let html = INDEX_HTML
       .replace(/<title>[\s\S]*?<\/title>/, `<title>${esc(title)}</title>`)
       .replace(/<meta name="description" content="[^"]*">/, `<meta name="description" content="${esc(description)}">`)
-      .replace(/<link rel="canonical"[^>]*>/, `<link rel="canonical" href="${esc(canonical)}">`)
+      // canonical + hreflang LATAM (una sola versión en español para toda la región)
+      .replace(/<link rel="canonical"[^>]*>/, `<link rel="canonical" href="${esc(canonical)}"><link rel="alternate" hreflang="es" href="${esc(canonical)}"><link rel="alternate" hreflang="x-default" href="${esc(canonical)}">`)
       .replace(/<meta property="og:title" content="[^"]*">/, `<meta property="og:title" content="${esc(title)}">`)
       .replace(/<meta property="og:description" content="[^"]*">/, `<meta property="og:description" content="${esc(description)}">`)
       .replace(/<meta property="og:url" content="[^"]*">/, `<meta property="og:url" content="${esc(canonical)}">`)
       .replace(/<meta name="twitter:title" content="[^"]*">/, `<meta name="twitter:title" content="${esc(title)}">`)
       .replace(/<meta name="twitter:description" content="[^"]*">/, `<meta name="twitter:description" content="${esc(description)}">`);
+    if (img) {
+      const absImg = esc(BASE_URL + img);
+      html = html
+        .replace(/<meta name="twitter:card" content="[^"]*">/, `<meta name="twitter:card" content="summary_large_image">`)
+        .replace('</head>', `<meta property="og:image" content="${absImg}"><meta property="og:image:width" content="1200"><meta property="og:image:height" content="630"><meta name="twitter:image" content="${absImg}"></head>`);
+    }
     if (jsonLd) {
       html = html.replace(/<script type="application\/ld\+json">[\s\S]*?<\/script>/,
         `<script type="application/ld+json"${nonce ? ` nonce="${nonce}"` : ''}>${JSON.stringify(jsonLd)}</script>`);
@@ -236,6 +250,15 @@ function createApp(db, statsDb) {
     const modHtml = mods.map(m => `<li><strong>${esc(m.code)}</strong> — ${esc(m.name)}. Presión regulada ${m.regulated_psi} PSI, flujo ${m.flow_lph} LPH. Ubicación: ${esc(m.location_text)}.</li>`).join('');
     const pumpHtml = pumps.map(p => `<li>${esc(p.code)} · ${esc(p.manufacturer)}</li>`).join('');
 
+    // Enlaces internos a otros modelos de la misma marca: más páginas por sesión y mejor rastreo (SEO)
+    const related = db.prepare(`SELECT v.id, b.name AS brand, v.model, v.year_from, v.year_to
+      FROM vehicles v JOIN brands b ON b.id = v.brand_id
+      WHERE v.brand_id = (SELECT brand_id FROM vehicles WHERE id = ?) AND v.id != ?
+      ORDER BY v.model, v.year_from LIMIT 8`).all(v.id, v.id);
+    const relHtml = related.length
+      ? `<h2 style="font-size:16px;color:#E53935;margin-top:24px">Otros ${esc(v.brand)}</h2><ul>${related.map(r => `<li><a href="/vehiculo/${vehicleSlug(r)}" style="color:#B7BFC9">${esc(r.brand)} ${esc(r.model)} ${r.year_from}-${r.year_to}</a></li>`).join('')}</ul>`
+      : '';
+
     const rootContent = `<main style="max-width:760px;margin:0 auto;padding:40px 22px;color:#E5E7EB;font-family:Montserrat,system-ui,sans-serif;line-height:1.6">
       <p style="font:700 11px/1 sans-serif;letter-spacing:2px;text-transform:uppercase;color:#979EA7">FuelTech Master · Ficha técnica</p>
       <h1 style="font-size:26px;margin:10px 0 4px">${esc(name)} — Presión de combustible</h1>
@@ -244,8 +267,9 @@ function createApp(db, statsDb) {
       ${modHtml ? `<h2 style="font-size:16px;color:#E53935;margin-top:24px">Módulo de combustible</h2><ul>${modHtml}</ul>` : ''}
       ${pumpHtml ? `<h2 style="font-size:16px;color:#E53935;margin-top:24px">Pilas (bombas) de gasolina compatibles</h2><ul>${pumpHtml}</ul>` : ''}
       ${v.notes ? `<p style="color:#B7BFC9;margin-top:16px">${esc(v.notes)}</p>` : ''}
+      ${relHtml}
       <p style="margin-top:28px"><a href="/vehiculo/${canonicalSlug}" style="color:#E53935;font-weight:700">Abrir herramienta interactiva (visor 3D, chat y más) →</a></p>
-      <p style="margin-top:8px"><a href="/vehiculos" style="color:#979EA7">Ver todos los vehículos del catálogo</a></p>
+      <p style="margin-top:8px"><a href="/vehiculos" style="color:#979EA7">Ver todos los vehículos</a> · <a href="/guias" style="color:#979EA7">Guías de diagnóstico</a></p>
     </main>`;
 
     const faq = [{ q: `¿Qué presión de combustible necesita un ${name}?`,
@@ -256,6 +280,7 @@ function createApp(db, statsDb) {
     res.set('Cache-Control', 'public, max-age=600');
     res.type('html').send(renderShell({
       title, description, canonicalPath: `/vehiculo/${canonicalSlug}`, rootContent, vehicleId: v.id, nonce: res.locals.cspNonce,
+      ogImage: ogForVehicle(v.id),
       jsonLd: { '@context': 'https://schema.org', '@type': 'FAQPage', inLanguage: 'es',
         mainEntity: faq.map(f => ({ '@type': 'Question', name: f.q, acceptedAnswer: { '@type': 'Answer', text: f.a } })) }
     }));
@@ -278,10 +303,115 @@ function createApp(db, statsDb) {
     }));
   });
 
+  /* ---------- Guías de contenido (SEO por intención de búsqueda) ----------
+     Atacan lo que los mecánicos googlean todo el día: "síntomas bomba de gasolina",
+     "cómo medir presión de combustible", "presión baja causas". Cada guía enlaza al catálogo. */
+  const GUIDES = [
+    {
+      slug: 'sintomas-bomba-de-gasolina-fallando',
+      label: 'Síntomas de bomba fallando',
+      title: '7 síntomas de una bomba de gasolina fallando (y cómo confirmarlo) | FuelTech Master',
+      description: 'Aprende a reconocer una bomba (pila) de gasolina que se está muriendo: arranque difícil en caliente, jaloneo, pérdida de potencia, zumbido del tanque y más. Guía para mecánicos.',
+      h1: '7 síntomas de una bomba de gasolina fallando',
+      html: `<p style="color:#B7BFC9">Una bomba (pila) de gasolina desgastada rara vez muere de golpe: primero da avisos. Reconocerlos a tiempo evita dejar tirado al cliente y apunta el diagnóstico hacia la presión de combustible.</p>
+        <h2 style="font-size:17px;color:#E53935;margin-top:22px">Los 7 síntomas más comunes</h2>
+        <ol style="padding-left:20px">
+          <li><b>Arranque difícil en caliente.</b> Con el motor caliente tarda en encender: la bomba ya no sostiene presión residual.</li>
+          <li><b>Jaloneo y pérdida de potencia en subidas o al acelerar a fondo.</b> El motor pide más flujo del que la bomba puede dar.</li>
+          <li><b>Tirones a velocidad de crucero constante.</b> La presión cae de forma intermitente.</li>
+          <li><b>Zumbido o ruido agudo desde el tanque.</b> Una bomba forzada (o con cedazo tapado) trabaja más ruidosa.</li>
+          <li><b>El motor no arranca.</b> Sin presión de combustible no hay pulverización en los inyectores.</li>
+          <li><b>Apagones intermitentes</b> en ralentí o en marcha, con reencendido posterior.</li>
+          <li><b>Mayor consumo o marcha irregular</b> por presión fuera de especificación.</li>
+        </ol>
+        <h2 style="font-size:17px;color:#E53935;margin-top:22px">Cómo confirmarlo (no adivines)</h2>
+        <p style="color:#B7BFC9">Todos estos síntomas también los provoca un filtro tapado, un regulador defectuoso o una caída de voltaje en el circuito. La única forma de confirmar es <a href="/guia/como-medir-la-presion-de-combustible" style="color:#E53935">medir la presión de combustible</a> y compararla con la <a href="/vehiculos" style="color:#E53935">especificación de tu vehículo</a>. Consulta siempre el manual de servicio antes de reemplazar.</p>`,
+      faq: [
+        { q: '¿Cuáles son los síntomas de una bomba de gasolina fallando?', a: 'Arranque difícil en caliente, jaloneo y pérdida de potencia al acelerar, tirones a velocidad constante, zumbido desde el tanque, apagones intermitentes y, en el peor caso, que el motor no arranque.' },
+        { q: '¿Cómo sé si es la bomba o el filtro?', a: 'Los síntomas son iguales; hay que medir la presión de combustible con manómetro y compararla contra la especificación del vehículo. Un filtro/cedazo tapado también baja la presión.' }
+      ]
+    },
+    {
+      slug: 'como-medir-la-presion-de-combustible',
+      label: 'Cómo medir la presión',
+      title: 'Cómo medir la presión de combustible paso a paso (con manómetro) | FuelTech Master',
+      description: 'Guía práctica para medir la presión de riel/combustible con manómetro: alivio de presión, conexión, lectura con llave ON, en ralentí y prueba de retención. Valores esperados por vehículo.',
+      h1: 'Cómo medir la presión de combustible (paso a paso)',
+      html: `<p style="color:#B7BFC9">Medir la presión es lo que separa el diagnóstico de la adivinanza. Necesitas un <b>manómetro de combustible</b> con los adaptadores adecuados y tomar precauciones: la gasolina está a presión.</p>
+        <h2 style="font-size:17px;color:#E53935;margin-top:22px">Paso a paso</h2>
+        <ol style="padding-left:20px">
+          <li><b>Alivia la presión</b> del sistema antes de abrir nada (fusible de la bomba y arrancar hasta que se apague, o válvula Schrader si existe).</li>
+          <li><b>Conecta el manómetro</b> en el puerto de prueba (Schrader) del riel, o en línea con adaptador en T si no hay puerto.</li>
+          <li><b>Llave en ON (sin arrancar):</b> la bomba presuriza 2–3 segundos. Anota la lectura pico.</li>
+          <li><b>Arranca y lee en ralentí:</b> compara con la especificación. En sistemas con retorno, al desconectar el vacío del regulador la presión debe subir.</li>
+          <li><b>Prueba de retención:</b> apaga y observa cuánto tarda en caer. Una caída rápida indica bomba, check, regulador o inyector con fuga.</li>
+        </ol>
+        <h2 style="font-size:17px;color:#E53935;margin-top:22px">¿Qué presión debe tener?</h2>
+        <p style="color:#B7BFC9">Depende del vehículo y del tipo de inyección (TBI, MFI, Vortec, GDI). Busca el valor exacto de tu auto en el <a href="/vehiculos" style="color:#E53935">catálogo</a>. Si estás por debajo del rango, revisa <a href="/guia/presion-de-combustible-baja" style="color:#E53935">las causas de presión baja</a>.</p>`,
+      faq: [
+        { q: '¿Dónde se conecta el manómetro de presión de combustible?', a: 'En el puerto de prueba (válvula Schrader) del riel de inyectores si existe, o en línea con un adaptador en T. Antes hay que aliviar la presión del sistema.' },
+        { q: '¿Qué presión de combustible es normal?', a: 'Varía por vehículo y tipo de inyección. Consulta el valor exacto de tu modelo en el catálogo de FuelTech Master y compáralo con tu lectura.' }
+      ]
+    },
+    {
+      slug: 'presion-de-combustible-baja',
+      label: 'Presión baja: causas',
+      title: 'Presión de combustible baja: causas y cómo diagnosticarla | FuelTech Master',
+      description: 'Presión de riel por debajo de especificación: bomba desgastada, cedazo/filtro tapado, regulador, caída de voltaje en el circuito, líneas obstruidas o fugas. Cómo diagnosticar cada causa.',
+      h1: 'Presión de combustible baja: causas y diagnóstico',
+      html: `<p style="color:#B7BFC9">Mediste y estás por debajo del rango. Antes de condenar la bomba, descarta en orden estas causas — varias son más baratas y comunes.</p>
+        <h2 style="font-size:17px;color:#E53935;margin-top:22px">Causas más frecuentes</h2>
+        <ul style="padding-left:20px">
+          <li><b>Cedazo o filtro de combustible tapado.</b> Restringe el flujo; es lo primero y más barato a revisar.</li>
+          <li><b>Bomba (pila) desgastada.</b> Ya no alcanza la presión ni el flujo; se confirma con prueba de flujo y presión muerta (deadhead).</li>
+          <li><b>Regulador de presión defectuoso.</b> Fuga o no mantiene el valor; en sistemas con retorno se prueba con el vacío.</li>
+          <li><b>Caída de voltaje en el circuito de la bomba.</b> Un cable/relé/conector con resistencia hace que la bomba gire lento y dé menos presión. Mide voltaje en el conector con la bomba trabajando.</li>
+          <li><b>Líneas obstruidas o aplastadas / fuga.</b> Restricción o pérdida en el camino al riel.</li>
+        </ul>
+        <h2 style="font-size:17px;color:#E53935;margin-top:22px">El orden correcto</h2>
+        <p style="color:#B7BFC9">Mide voltaje en la bomba antes de cambiarla: muchas bombas "malas" en realidad reciben voltaje bajo. Luego descarta cedazo/filtro y regulador. Compara siempre contra la <a href="/vehiculos" style="color:#E53935">especificación de tu vehículo</a> y consulta el manual de servicio.</p>`,
+      faq: [
+        { q: '¿Por qué la presión de combustible está baja?', a: 'Las causas más comunes son: cedazo/filtro tapado, bomba desgastada, regulador defectuoso, caída de voltaje en el circuito de la bomba, y líneas obstruidas o con fuga.' },
+        { q: '¿Cómo saber si es la bomba o un problema eléctrico?', a: 'Mide el voltaje en el conector de la bomba mientras trabaja. Si el voltaje es bajo, el problema es del circuito (cable, relé, conector), no de la bomba.' }
+      ]
+    }
+  ];
+  const guideBody = (g) => `<main style="max-width:760px;margin:0 auto;padding:40px 22px;color:#E5E7EB;font-family:Montserrat,system-ui,sans-serif;line-height:1.7">
+      <p style="font:700 11px/1 sans-serif;letter-spacing:2px;text-transform:uppercase;color:#979EA7">FuelTech Master · Guía técnica</p>
+      <h1 style="font-size:26px;margin:10px 0 16px">${g.h1}</h1>
+      ${g.html}
+      <p style="margin-top:28px"><a href="/vehiculos" style="color:#E53935;font-weight:700">Busca la presión exacta de tu vehículo →</a></p>
+      <p style="margin-top:10px;color:#979EA7">Más guías: ${GUIDES.map(x => `<a href="/guia/${x.slug}" style="color:#979EA7">${x.label}</a>`).join(' · ')}</p>
+    </main>`;
+
+  app.get('/guias', (req, res) => {
+    const items = GUIDES.map(g => `<li><a href="/guia/${g.slug}" style="color:#E5E7EB;text-decoration:none">${g.h1}</a></li>`).join('');
+    res.set('Cache-Control', 'public, max-age=3600');
+    res.type('html').send(renderShell({
+      title: 'Guías de diagnóstico del sistema de combustible | FuelTech Master',
+      description: 'Guías prácticas para mecánicos: síntomas de una bomba de gasolina fallando, cómo medir la presión de combustible y causas de presión baja.',
+      canonicalPath: '/guias', nonce: res.locals.cspNonce,
+      rootContent: `<main style="max-width:760px;margin:0 auto;padding:40px 22px;color:#E5E7EB;font-family:Montserrat,system-ui,sans-serif"><h1 style="font-size:24px">Guías de diagnóstico</h1><ul style="line-height:2.2;margin-top:12px;padding-left:18px">${items}</ul></main>`
+    }));
+  });
+
+  app.get('/guia/:slug', (req, res, next) => {
+    const g = GUIDES.find(x => x.slug === req.params.slug);
+    if (!g) return next();
+    res.set('Cache-Control', 'public, max-age=3600');
+    res.type('html').send(renderShell({
+      title: g.title, description: g.description, canonicalPath: '/guia/' + g.slug, nonce: res.locals.cspNonce, rootContent: guideBody(g),
+      jsonLd: { '@context': 'https://schema.org', '@type': 'FAQPage', inLanguage: 'es',
+        mainEntity: g.faq.map(f => ({ '@type': 'Question', name: f.q, acceptedAnswer: { '@type': 'Answer', text: f.a } })) }
+    }));
+  });
+
   app.get('/sitemap.xml', (req, res) => {
     const rows = db.prepare(`SELECT v.id, b.name AS brand, v.model, v.year_from, v.year_to
       FROM vehicles v JOIN brands b ON b.id = v.brand_id`).all();
-    const locs = [`${BASE_URL}/`, `${BASE_URL}/vehiculos`, ...rows.map(v => `${BASE_URL}/vehiculo/${vehicleSlug(v)}`)];
+    const locs = [`${BASE_URL}/`, `${BASE_URL}/vehiculos`, `${BASE_URL}/guias`,
+      ...GUIDES.map(g => `${BASE_URL}/guia/${g.slug}`),
+      ...rows.map(v => `${BASE_URL}/vehiculo/${vehicleSlug(v)}`)];
     res.type('application/xml').set('Cache-Control', 'public, max-age=3600').send(
       `<?xml version="1.0" encoding="UTF-8"?>\n<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n` +
       locs.map(u => `  <url><loc>${esc(u)}</loc></url>`).join('\n') + `\n</urlset>\n`);

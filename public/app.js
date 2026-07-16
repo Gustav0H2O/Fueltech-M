@@ -7,6 +7,28 @@ const api = (url) => fetch(url).then(r => { if (!r.ok) throw new Error(r.status)
 /* Evento a Google Analytics (si está cargado). Silencioso si no. */
 const track = (name, params) => { try { if (window.gtag) window.gtag('event', name, params || {}); } catch (e) {} };
 
+/* Mi Garage: favoritos locales (sin cuenta). Persisten en el navegador del mecánico. */
+const GARAGE_KEY = 'ft_garage';
+const getGarage = () => { try { return JSON.parse(localStorage.getItem(GARAGE_KEY) || '[]'); } catch (e) { return []; } };
+const saveGarage = (arr) => { localStorage.setItem(GARAGE_KEY, JSON.stringify(arr.slice(0, 50))); window.dispatchEvent(new Event('ft-garage-change')); };
+const toggleGarage = (veh) => {
+  const g = getGarage();
+  const i = g.findIndex(x => x.id === veh.id);
+  if (i >= 0) g.splice(i, 1); else g.unshift(veh);
+  saveGarage(g);
+  track(i >= 0 ? 'garage_quitar' : 'garage_guardar', {});
+};
+function useGarage() {
+  const [g, setG] = useState(getGarage);
+  useEffect(() => {
+    const h = () => setG(getGarage());
+    window.addEventListener('ft-garage-change', h);
+    window.addEventListener('storage', h);
+    return () => { window.removeEventListener('ft-garage-change', h); window.removeEventListener('storage', h); };
+  }, []);
+  return g;
+}
+
 /* Icono Lucide montado como SVG (espera a que window.lucide esté listo).
    Sin aria-label => decorativo (aria-hidden); con aria-label => icono con significado propio. */
 function Icon({ name, size = 16, className = '', spin = false, label }) {
@@ -95,6 +117,7 @@ function PumpCard({ pump }) {
 function VehicleDetail({ id }) {
   const [v, setV] = useState(null);
   const [err, setErr] = useState(null);
+  const garage = useGarage(); // debe ir ANTES de cualquier return temprano (reglas de hooks)
   useEffect(() => {
     // el error se limpia al cambiar de vehículo, y una respuesta vieja no pisa a la nueva
     let alive = true;
@@ -129,6 +152,8 @@ function VehicleDetail({ id }) {
     letterSpacing: '1px', textTransform: 'uppercase', background: 'transparent', color: 'var(--red)',
     border: '1px solid var(--red-dim)', borderRadius: '2px', padding: '9px 14px', cursor: 'pointer'
   };
+  const saved = garage.some(x => x.id === v.id);
+  const onStar = () => toggleGarage({ id: v.id, brand: v.brand, model: v.model, psi: v.rail_pressure.psi_max, slug: v.slug });
 
   return html`
     <div>
@@ -145,6 +170,7 @@ function VehicleDetail({ id }) {
         </div>
         ${v.notes && html`<div class="alert"><${Icon} name="AlertTriangle" size=${14} />${v.notes}</div>`}
         <div style=${{ display: 'flex', flexWrap: 'wrap', gap: '8px', marginTop: '14px' }}>
+          <button type="button" onClick=${onStar} style=${{ ...shareBtn, color: saved ? 'var(--amber)' : 'var(--muted)', borderColor: saved ? 'var(--amber-dim)' : 'var(--border-hi)' }} title=${saved ? 'Quitar de Mi Garage' : 'Guardar en Mi Garage'}><${Icon} name="Star" size=${14} /> ${saved ? 'Guardado' : 'Guardar'}</button>
           <button type="button" onClick=${shareWhatsApp} style=${shareBtn} title="Compartir esta ficha por WhatsApp"><${Icon} name="Share2" size=${14} /> Compartir</button>
           <button type="button" onClick=${shareNative} style=${shareBtn} title="Copiar enlace de esta ficha"><${Icon} name="Link2" size=${14} /> Copiar enlace</button>
           <button type="button" onClick=${() => window.print()} style=${shareBtn} title="Imprimir o guardar como PDF"><${Icon} name="Printer" size=${14} /> Imprimir / PDF</button>
@@ -396,6 +422,8 @@ function App() {
   const [results, setResults] = useState(null);
   const [searchErr, setSearchErr] = useState(false);
   const [selected, setSelected] = useState(initialURL.selected);
+  const [showGarage, setShowGarage] = useState(false);
+  const garage = useGarage();
   const seqRef = useRef(0);
   const listRef = useRef(null);
   const modelInputRef = useRef(null);
@@ -549,6 +577,7 @@ function App() {
         <div class="app-footer">
           <div class="footer-brand">FUEL<span>TECH</span> MASTER</div>
           <div class="footer-desc">Catálogo técnico de módulos y pilas de gasolina</div>
+          <div class="footer-desc" style=${{ marginTop: '5px' }}><a href="/guias" style=${{ color: 'var(--muted)', textDecoration: 'underline' }}>Guías de diagnóstico</a> · <a href="/vehiculos" style=${{ color: 'var(--muted)', textDecoration: 'underline' }}>Catálogo completo</a></div>
           <div class="footer-copy">© 2025–2026 FuelTech Master. Todos los derechos reservados.</div>
           <div class="dev-contact">
             <${Icon} name="Mail" size=${13} />
@@ -561,7 +590,7 @@ function App() {
       <div class="content-pane" id="main-content">
         <div class="results-strip">
           <div class="rs-head">
-            <h2>Vehículos encontrados</h2>
+            <h2>${showGarage ? 'Mi Garage' : 'Vehículos encontrados'} <button type="button" class="link-btn" style=${{ marginLeft: '10px', fontSize: '11px', letterSpacing: '.5px' }} onClick=${() => setShowGarage(s => !s)}>${showGarage ? '← búsqueda' : `★ Garage (${garage.length})`}</button></h2>
             <div class="result-count" aria-live="polite">
               ${isSearching ? html`<span style=${{color: 'var(--red)', marginRight: '6px'}}><${Icon} name="Loader2" size=${12} spin=${true} /></span>` : ''}
               ${results ? html`<b>${results.length}</b> resultado(s)` : 'Cargando vehículos…'}
@@ -572,9 +601,15 @@ function App() {
             </div>
           </div>
           <div class="result-row">
-            ${results?.length > 0 && html`<button type="button" class="rl-nav prev" aria-label="Desplazar a la izquierda" onClick=${scrollList(-1)}><${Icon} name="ChevronLeft" size=${20} /></button>`}
-            <div class="result-list" ref=${listRef} role="listbox" aria-label="Vehículos encontrados">
-              ${results?.map(r => html`
+            ${!showGarage && results?.length > 0 && html`<button type="button" class="rl-nav prev" aria-label="Desplazar a la izquierda" onClick=${scrollList(-1)}><${Icon} name="ChevronLeft" size=${20} /></button>`}
+            <div class="result-list" ref=${listRef} role="listbox" aria-label=${showGarage ? 'Mi garage' : 'Vehículos encontrados'}>
+              ${showGarage && (garage.length
+                ? garage.map(r => html`<button key=${r.id} type="button" role="option" aria-selected=${selected === r.id} class=${'result-item' + (selected === r.id ? ' active' : '')} onClick=${() => setSelected(r.id)}>
+                    <div class="r-name">${r.brand} ${r.model}</div>
+                    <div class="r-meta"><span class="r-psi">${r.psi} PSI</span></div>
+                  </button>`)
+                : html`<div class="empty-state"><${Icon} name="Star" size=${22} /><p>Tu garage está vacío.</p><p class="hint">Abre la ficha de un vehículo y toca "Guardar" para tenerlo a la mano aquí.</p></div>`)}
+              ${!showGarage && results?.map(r => html`
                 <button key=${r.id} type="button" role="option" aria-selected=${selected === r.id}
                         class=${'result-item' + (selected === r.id ? ' active' : '')} onClick=${() => setSelected(r.id)}>
                   <div class="r-name">${r.brand} ${r.model}</div>
@@ -585,7 +620,7 @@ function App() {
                     </span>
                   </div>
                 </button>`)}
-              ${results?.length === 0 && html`<div class="empty-state" aria-live="polite">
+              ${!showGarage && results?.length === 0 && html`<div class="empty-state" aria-live="polite">
                 ${searchErr
                   ? html`<${Icon} name="WifiOff" size=${22} /><p>ERROR DE CONEXIÓN — REINTENTA EN UNOS SEGUNDOS</p>`
                   : html`
@@ -595,7 +630,7 @@ function App() {
                     <button type="button" onClick=${clearFilters}><${Icon} name="FilterX" size=${14} /> Limpiar filtros</button>`}
               </div>`}
             </div>
-            ${results?.length > 0 && html`<button type="button" class="rl-nav next" aria-label="Desplazar a la derecha" onClick=${scrollList(1)}><${Icon} name="ChevronRight" size=${20} /></button>`}
+            ${!showGarage && results?.length > 0 && html`<button type="button" class="rl-nav next" aria-label="Desplazar a la derecha" onClick=${scrollList(1)}><${Icon} name="ChevronRight" size=${20} /></button>`}
           </div>
         </div>
 

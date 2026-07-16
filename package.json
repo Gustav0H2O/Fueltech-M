@@ -6,6 +6,7 @@
   "scripts": {
     "seed": "node seed.js",
     "start": "node server.js",
+    "og": "node og-gen.js",
     "test": "node --test test/*.test.js",
     "test:e2e": "node --test test/e2e.suite.js"
   },
