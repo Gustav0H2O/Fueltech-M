@@ -409,6 +409,64 @@ function ChatBot({ vehicleId }) {
     </${React.Fragment}>`;
 }
 
+/* ---------- Calculadoras Técnicas ---------- */
+function Calculators() {
+  const [psi, setPsi] = useState('');
+  const [bar, setBar] = useState('');
+  const [hp, setHp] = useState('');
+  const [isTurbo, setIsTurbo] = useState(false);
+
+  const onPsi = (e) => { const v = e.target.value; setPsi(v); setBar(v ? (v * 0.0689476).toFixed(2) : ''); };
+  const onBar = (e) => { const v = e.target.value; setBar(v); setPsi(v ? (v * 14.5038).toFixed(1) : ''); };
+  
+  const reqLph = hp ? Math.ceil(hp * (isTurbo ? 0.47 : 0.38)) : 0;
+
+  return html`
+    <div style=${{ maxWidth: '600px', margin: '0 auto', padding: '16px' }}>
+      <div class="panel">
+        <div class="vh-head">
+          <h2><${Icon} name="Calculator" size=${20} /> Calculadoras Técnicas</h2>
+          <p class="muted mt">Herramientas rápidas de diagnóstico de taller.</p>
+        </div>
+
+        <div class="grid2 mt" style=${{ marginTop: '24px' }}>
+          <!-- Conversor PSI/Bar -->
+          <div class="panel" style=${{ background: 'var(--bg)' }}>
+            <h3 style=${{ fontSize: '14px', marginBottom: '12px' }}>Conversor de Presión</h3>
+            <div style=${{ display: 'flex', gap: '12px', alignItems: 'center' }}>
+              <div style=${{ flex: 1 }}>
+                <label class="muted" style=${{ display: 'block', fontSize: '11px', marginBottom: '4px' }}>PSI</label>
+                <input type="number" value=${psi} onChange=${onPsi} placeholder="43.5" style=${{ width: '100%', padding: '8px', borderRadius: '4px', border: '1px solid var(--border)', background: 'var(--card)', color: 'var(--text)' }} />
+              </div>
+              <div style=${{ color: 'var(--border-hi)', marginTop: '16px' }}><${Icon} name="ArrowRightLeft" size=${16} /></div>
+              <div style=${{ flex: 1 }}>
+                <label class="muted" style=${{ display: 'block', fontSize: '11px', marginBottom: '4px' }}>Bar</label>
+                <input type="number" value=${bar} onChange=${onBar} placeholder="3.0" style=${{ width: '100%', padding: '8px', borderRadius: '4px', border: '1px solid var(--border)', background: 'var(--card)', color: 'var(--text)' }} />
+              </div>
+            </div>
+          </div>
+
+          <!-- Flujo requerido -->
+          <div class="panel" style=${{ background: 'var(--bg)' }}>
+            <h3 style=${{ fontSize: '14px', marginBottom: '12px' }}>Flujo Requerido (Estimado)</h3>
+            <div style=${{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+              <div>
+                <label class="muted" style=${{ display: 'block', fontSize: '11px', marginBottom: '4px' }}>Caballos de fuerza del motor (HP)</label>
+                <input type="number" value=${hp} onChange=${e => setHp(e.target.value)} placeholder="Ej: 150" style=${{ width: '100%', padding: '8px', borderRadius: '4px', border: '1px solid var(--border)', background: 'var(--card)', color: 'var(--text)' }} />
+              </div>
+              <label style=${{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '13px', cursor: 'pointer', color: 'var(--text)' }}>
+                <input type="checkbox" checked=${isTurbo} onChange=${e => setIsTurbo(e.target.checked)} />
+                Turbo / Supercargado
+              </label>
+            </div>
+            ${reqLph > 0 ? html`<div class="alert blue mt" style=${{ marginTop: '16px' }}><${Icon} name="Info" size=${14} /> La bomba debe entregar mín. <b>${reqLph} LPH</b> a presión de trabajo.</div>` : ''}
+          </div>
+        </div>
+      </div>
+    </div>
+  `;
+}
+
 /* ---------- App: panel de búsqueda lateral + ficha en vivo ---------- */
 function App() {
   const initialURL = useRef(readURLState()).current;
@@ -423,6 +481,7 @@ function App() {
   const [searchErr, setSearchErr] = useState(false);
   const [selected, setSelected] = useState(initialURL.selected);
   const [showGarage, setShowGarage] = useState(false);
+  const [viewState, setViewState] = useState('search'); // 'search' | 'calculators'
   const garage = useGarage();
   const seqRef = useRef(0);
   const listRef = useRef(null);
@@ -570,6 +629,9 @@ function App() {
                 <option value="year_desc">Año (Más reciente)</option>
               </select></div>
             <button type="button" title="Limpiar filtros (Esc)" onClick=${clearFilters}>Limpiar filtros</button>
+            <button type="button" class="mt" style=${{ marginTop: '8px', background: 'var(--card)', color: 'var(--text)', border: '1px solid var(--border-hi)' }} onClick=${() => { setViewState(viewState === 'calculators' ? 'search' : 'calculators'); }}>
+              <${Icon} name="Calculator" size=${14} /> ${viewState === 'calculators' ? 'Cerrar Calculadoras' : 'Abrir Calculadoras'}
+            </button>
           </div>
           ${metaErr && html`<div class="alert"><${Icon} name="AlertTriangle" size=${14} /> Error al cargar catálogos. Verifica tu conexión.</div>`}
         </div>
@@ -635,9 +697,11 @@ function App() {
         </div>
 
         <div class="preview-inner">
-          ${selected
-            ? html`<${VehicleDetail} id=${selected} />`
-            : html`<div class="empty">SELECCIONA UN VEHÍCULO PARA VER SU FICHA TÉCNICA</div>`}
+          ${viewState === 'calculators' 
+             ? html`<${Calculators} />`
+             : selected
+               ? html`<${VehicleDetail} id=${selected} />`
+               : html`<div class="empty">SELECCIONA UN VEHÍCULO PARA VER SU FICHA TÉCNICA</div>`}
         </div>
       </div>
       <${ChatBot} vehicleId=${selected} />
