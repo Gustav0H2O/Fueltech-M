@@ -411,74 +411,186 @@ function ChatBot({ vehicleId }) {
 
 /* ---------- Calculadoras Técnicas ---------- */
 function Calculators() {
+  const [tab, setTab] = useState('flow');
+
+  // Presión
   const [psi, setPsi] = useState('');
   const [bar, setBar] = useState('');
-  const [hp, setHp] = useState('');
-  const [isTurbo, setIsTurbo] = useState(false);
-
   const onPsi = (e) => { const v = e.target.value; setPsi(v); setBar(v ? (v * 0.0689476).toFixed(2) : ''); };
   const onBar = (e) => { const v = e.target.value; setBar(v); setPsi(v ? (v * 14.5038).toFixed(1) : ''); };
+
+  // Caudal
+  const [lph, setLph] = useState('');
+  const [gph, setGph] = useState('');
+  const [cc, setCc] = useState('');
+  const onLph = (e) => { const v = e.target.value; setLph(v); setGph(v ? (v * 0.264172).toFixed(1) : ''); setCc(v ? (v * 16.6667).toFixed(0) : ''); };
+  const onGph = (e) => { const v = e.target.value; setGph(v); setLph(v ? (v / 0.264172).toFixed(0) : ''); setCc(v ? (v * 63.0902).toFixed(0) : ''); };
+  const onCc = (e) => { const v = e.target.value; setCc(v); setLph(v ? (v / 16.6667).toFixed(0) : ''); setGph(v ? (v / 63.0902).toFixed(1) : ''); };
+
+  // Requerimiento BSFC
+  const [hp, setHp] = useState('');
+  const [aspiration, setAspiration] = useState('na'); 
+  const bsfcMap = { na: 0.38, turbo: 0.47, e85: 0.61 };
+  const reqLph = hp ? Math.ceil(hp * bsfcMap[aspiration]) : 0;
+
+  // Eléctrico
+  const [volts, setVolts] = useState('13.5');
+  const [ohms, setOhms] = useState('');
+  const amps = volts && ohms && ohms > 0 ? (volts / ohms).toFixed(1) : 0;
   
-  const reqLph = hp ? Math.ceil(hp * (isTurbo ? 0.47 : 0.38)) : 0;
+  let ampStatus = '';
+  let ampColor = '';
+  if (amps > 0) {
+    if (amps > 20) { ampStatus = 'Consumo crítico. Motor atascado o en corto.'; ampColor = 'var(--red)'; }
+    else if (amps > 14) { ampStatus = 'Consumo alto. Riesgo de sobrecalentar relay.'; ampColor = 'var(--amber)'; }
+    else if (amps < 2) { ampStatus = 'Consumo muy bajo. Circuito abierto o sin carga.'; ampColor = 'var(--amber)'; }
+    else { ampStatus = 'Consumo normal para bomba estándar.'; ampColor = 'var(--text)'; }
+  }
 
   const innerBoxStyle = {
-    background: 'var(--panel2)', 
-    border: '1px solid var(--border)', 
-    borderRadius: '6px', 
-    padding: '20px',
-    display: 'flex',
-    flexDirection: 'column'
+    background: 'var(--panel2)', border: '1px solid var(--border)', borderRadius: '6px', 
+    padding: '20px', display: 'flex', flexDirection: 'column'
   };
 
+  const tabBtn = (id, icon, text) => html`
+    <button type="button" onClick=${() => setTab(id)} style=${{
+      flex: 1, padding: '14px 8px', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px',
+      background: tab === id ? 'rgba(229,57,53,.08)' : 'transparent',
+      border: 'none', borderBottom: tab === id ? '2px solid var(--red)' : '2px solid transparent',
+      color: tab === id ? 'var(--text)' : 'var(--muted)',
+      fontFamily: 'var(--font)', fontSize: '11px', fontWeight: '700', letterSpacing: '1px', textTransform: 'uppercase',
+      cursor: 'pointer', transition: 'all .2s'
+    }}>
+      <${Icon} name=${icon} size=${16} color=${tab === id ? 'var(--red)' : 'currentColor'} /> 
+      <span>${text}</span>
+    </button>
+  `;
+
   return html`
-    <div style=${{ maxWidth: '760px', margin: '0 auto' }}>
-      <div class="panel">
-        <div class="vh-head">
-          <h2><${Icon} name="Calculator" size=${20} /> Calculadoras Técnicas</h2>
-          <p class="muted mt">Herramientas rápidas de diagnóstico para uso en taller.</p>
+    <div style=${{ maxWidth: '800px', margin: '0 auto' }}>
+      <div class="panel" style=${{ padding: 0, overflow: 'hidden' }}>
+        <div style=${{ padding: '20px 24px 0' }}>
+          <div class="vh-head">
+            <h2><${Icon} name="Calculator" size=${20} /> Diagnóstico Profesional</h2>
+          </div>
+          <p class="muted mt" style=${{ marginBottom: '20px' }}>Herramientas técnicas para cálculo de caudal y análisis eléctrico de bombas de combustible.</p>
         </div>
 
-        <div class="grid2 mt" style=${{ marginTop: '24px' }}>
-          <!-- Conversor PSI/Bar -->
-          <div style=${innerBoxStyle}>
-            <h3 style=${{ fontSize: '14.5px', marginBottom: '16px', display: 'flex', alignItems: 'center', gap: '8px' }}>
-              <${Icon} name="ArrowRightLeft" size=${16} /> Conversor de Presión
-            </h3>
-            <div style=${{ display: 'flex', flexWrap: 'wrap', gap: '14px', alignItems: 'end', marginTop: 'auto' }}>
-              <div style=${{ flex: '1 1 100px' }}>
-                <label class="muted" style=${{ display: 'block', fontSize: '11px', letterSpacing: '1px', textTransform: 'uppercase', marginBottom: '6px' }}>PSI</label>
-                <input type="number" class="styled-input" value=${psi} onChange=${onPsi} placeholder="43.5" />
-              </div>
-              <div style=${{ color: 'var(--border-hi)', paddingBottom: '10px', display: 'flex', justifyContent: 'center' }}>
-                <${Icon} name="ArrowRight" size=${16} />
-              </div>
-              <div style=${{ flex: '1 1 100px' }}>
-                <label class="muted" style=${{ display: 'block', fontSize: '11px', letterSpacing: '1px', textTransform: 'uppercase', marginBottom: '6px' }}>Bar</label>
-                <input type="number" class="styled-input" value=${bar} onChange=${onBar} placeholder="3.0" />
-              </div>
-            </div>
-          </div>
+        <div style=${{ display: 'flex', flexWrap: 'wrap', borderBottom: '1px solid var(--border)', background: 'var(--panel)' }}>
+          ${tabBtn('flow', 'Activity', 'Caudal (LPH)')}
+          ${tabBtn('pressure', 'ArrowRightLeft', 'Presión (PSI)')}
+          ${tabBtn('electrical', 'Zap', 'Eléctrico (Ley de Ohm)')}
+        </div>
 
-          <!-- Flujo requerido -->
-          <div style=${innerBoxStyle}>
-            <h3 style=${{ fontSize: '14.5px', marginBottom: '16px', display: 'flex', alignItems: 'center', gap: '8px' }}>
-              <${Icon} name="Activity" size=${16} /> Flujo Requerido (LPH)
-            </h3>
-            <div style=${{ display: 'flex', flexDirection: 'column', gap: '14px', marginTop: 'auto' }}>
-              <div>
-                <label class="muted" style=${{ display: 'block', fontSize: '11px', letterSpacing: '1px', textTransform: 'uppercase', marginBottom: '6px' }}>Caballos de fuerza (HP)</label>
-                <input type="number" class="styled-input" value=${hp} onChange=${e => setHp(e.target.value)} placeholder="Ej: 150" />
+        <div style=${{ padding: '24px' }}>
+          
+          ${tab === 'flow' ? html`
+            <div class="grid2">
+              <div style=${innerBoxStyle}>
+                <h3 style=${{ fontSize: '14.5px', marginBottom: '16px', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                  <${Icon} name="Filter" size=${16} /> Requerimiento por Motor
+                </h3>
+                <div style=${{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
+                  <div>
+                    <label class="muted" style=${{ display: 'block', fontSize: '11px', letterSpacing: '1px', textTransform: 'uppercase', marginBottom: '6px' }}>Caballos de fuerza (HP)</label>
+                    <input type="number" class="styled-input" value=${hp} onChange=${e => setHp(e.target.value)} placeholder="Ej: 300" />
+                  </div>
+                  <div>
+                    <label class="muted" style=${{ display: 'block', fontSize: '11px', letterSpacing: '1px', textTransform: 'uppercase', marginBottom: '6px' }}>Tipo de Inducción</label>
+                    <select class="styled-input" value=${aspiration} onChange=${e => setAspiration(e.target.value)}>
+                      <option value="na">Aspirado Natural (NA)</option>
+                      <option value="turbo">Turbo / Supercargado</option>
+                      <option value="e85">Modificado / Etanol (E85)</option>
+                    </select>
+                  </div>
+                </div>
+                ${reqLph > 0 ? html`
+                  <div class="alert blue" style=${{ marginTop: '20px', alignItems: 'center' }}>
+                    <${Icon} name="CheckCircle2" size=${18} color="var(--amber)" /> 
+                    <span>La bomba debe entregar mínimo <b style=${{ color: 'var(--text)', fontSize: '15px' }}>${reqLph} LPH</b> reales a la presión de trabajo.</span>
+                  </div>` : ''}
               </div>
-              <label style=${{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '13px', cursor: 'pointer', color: 'var(--text)', padding: '4px 0' }}>
-                <input type="checkbox" checked=${isTurbo} onChange=${e => setIsTurbo(e.target.checked)} style=${{ width: '16px', height: '16px', accentColor: 'var(--red)' }} />
-                Motor Turbo / Supercargado
-              </label>
+
+              <div style=${innerBoxStyle}>
+                <h3 style=${{ fontSize: '14.5px', marginBottom: '16px', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                  <${Icon} name="Repeat" size=${16} /> Conversor de Caudal
+                </h3>
+                <div style=${{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
+                  <div style=${{ display: 'grid', gridTemplateColumns: '1fr 24px', alignItems: 'center', gap: '10px' }}>
+                    <input type="number" class="styled-input" value=${lph} onChange=${onLph} placeholder="255" />
+                    <span style=${{ fontSize: '12px', fontWeight: 700, color: 'var(--muted)' }}>LPH</span>
+                  </div>
+                  <div style=${{ display: 'grid', gridTemplateColumns: '1fr 24px', alignItems: 'center', gap: '10px' }}>
+                    <input type="number" class="styled-input" value=${gph} onChange=${onGph} placeholder="67" />
+                    <span style=${{ fontSize: '12px', fontWeight: 700, color: 'var(--muted)' }}>GPH</span>
+                  </div>
+                  <div style=${{ display: 'grid', gridTemplateColumns: '1fr 24px', alignItems: 'center', gap: '10px' }}>
+                    <input type="number" class="styled-input" value=${cc} onChange=${onCc} placeholder="4250" />
+                    <span style=${{ fontSize: '12px', fontWeight: 700, color: 'var(--muted)' }}>CC</span>
+                  </div>
+                </div>
+              </div>
             </div>
-            ${reqLph > 0 ? html`
-              <div class="alert blue" style=${{ marginTop: '16px' }}>
-                <${Icon} name="Info" size=${14} /> La pila debe entregar mínimo <b>${reqLph} LPH</b> a la presión de trabajo especificada.
-              </div>` : ''}
-          </div>
+          ` : ''}
+
+          ${tab === 'pressure' ? html`
+            <div style=${innerBoxStyle}>
+              <h3 style=${{ fontSize: '14.5px', marginBottom: '16px', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                <${Icon} name="ArrowRightLeft" size=${16} /> Conversor de Presión (Riel)
+              </h3>
+              <div style=${{ display: 'grid', gridTemplateColumns: '1fr auto 1fr', gap: '20px', alignItems: 'end' }}>
+                <div>
+                  <label class="muted" style=${{ display: 'block', fontSize: '11px', letterSpacing: '1px', textTransform: 'uppercase', marginBottom: '6px' }}>PSI (Libras)</label>
+                  <input type="number" class="styled-input" value=${psi} onChange=${onPsi} placeholder="43.5" />
+                </div>
+                <div style=${{ color: 'var(--border-hi)', paddingBottom: '10px', display: 'flex', justifyContent: 'center' }}>
+                  <${Icon} name="ArrowRight" size=${20} />
+                </div>
+                <div>
+                  <label class="muted" style=${{ display: 'block', fontSize: '11px', letterSpacing: '1px', textTransform: 'uppercase', marginBottom: '6px' }}>Bar</label>
+                  <input type="number" class="styled-input" value=${bar} onChange=${onBar} placeholder="3.0" />
+                </div>
+              </div>
+            </div>
+          ` : ''}
+
+          ${tab === 'electrical' ? html`
+            <div class="grid2">
+              <div style=${innerBoxStyle}>
+                <h3 style=${{ fontSize: '14.5px', marginBottom: '16px', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                  <${Icon} name="Plug" size=${16} /> Multímetro (Entradas)
+                </h3>
+                <div style=${{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
+                  <div>
+                    <label class="muted" style=${{ display: 'block', fontSize: '11px', letterSpacing: '1px', textTransform: 'uppercase', marginBottom: '6px' }}>Voltaje Real en Bomba (V)</label>
+                    <input type="number" class="styled-input" value=${volts} onChange=${e => setVolts(e.target.value)} placeholder="Ej: 13.5" step="0.1" />
+                  </div>
+                  <div>
+                    <label class="muted" style=${{ display: 'block', fontSize: '11px', letterSpacing: '1px', textTransform: 'uppercase', marginBottom: '6px' }}>Resistencia del Motor (Ohms Ω)</label>
+                    <input type="number" class="styled-input" value=${ohms} onChange=${e => setOhms(e.target.value)} placeholder="Ej: 1.2" step="0.1" />
+                  </div>
+                </div>
+              </div>
+
+              <div style=${innerBoxStyle}>
+                <h3 style=${{ fontSize: '14.5px', marginBottom: '16px', display: 'flex', alignItems: 'center', gap: '8px', color: 'var(--amber)' }}>
+                  <${Icon} name="ActivitySquare" size=${16} /> Diagnóstico Amperaje
+                </h3>
+                <div style=${{ flex: 1, display: 'flex', flexDirection: 'column', justifyContent: 'center', alignItems: 'center', gap: '8px', padding: '10px 0' }}>
+                  <div style=${{ fontSize: '12px', color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '2px' }}>Consumo Teórico</div>
+                  <div style=${{ fontSize: '42px', fontWeight: 800, color: amps > 0 ? ampColor : 'var(--border-hi)', fontVariantNumeric: 'tabular-nums', lineHeight: 1 }}>
+                    ${amps} <span style=${{ fontSize: '18px' }}>A</span>
+                  </div>
+                </div>
+                ${amps > 0 ? html`
+                  <div style=${{ marginTop: '16px', padding: '12px', background: 'rgba(0,0,0,0.2)', border: '1px solid var(--border)', borderRadius: '4px', fontSize: '13px', color: ampColor, textAlign: 'center', fontWeight: 600 }}>
+                    ${ampStatus}
+                  </div>
+                ` : ''}
+              </div>
+            </div>
+          ` : ''}
+
         </div>
       </div>
     </div>

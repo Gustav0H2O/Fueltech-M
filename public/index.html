@@ -230,13 +230,6 @@
 
   .preview-inner {
     padding: 28px 30px 60px; max-width: 1400px; margin: 0 auto;
-    /* indicador de scroll: una sombra inferior sutil que se oculta al llegar al final */
-    position: relative;
-  }
-  .preview-inner::after {
-    content: ''; position: sticky; bottom: 0; display: block; height: 40px;
-    margin-top: -40px; pointer-events: none;
-    background: linear-gradient(to bottom, transparent, var(--bg-fade));
   }
   /* pantallas ultra-anchas: limitar el ancho de lectura en vez de estirar el contenido borde a borde */
   @media (min-width: 1900px) {
@@ -610,7 +603,7 @@
 <script src="/vendor/htm.js"></script>
 <script src="/vendor/lucide.js"></script>
 <script src="fx.js"></script>
-<script type="module" src="three3d.js?v=2"></script>
-<script src="app.js?v=2"></script>
+<script type="module" src="three3d.js?v=3"></script>
+<script src="app.js?v=3"></script>
 </body>
 </html>
