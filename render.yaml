@@ -18,3 +18,10 @@ services:
       # La API key del chat se configura como secreto en el panel de Render (no en texto plano aquí).
       - key: GEMINI_API_KEY
         sync: false
+      # Google Analytics 4 (ya integrado en el código; cambia el ID aquí si algún día lo necesitas).
+      - key: GA_MEASUREMENT_ID
+        value: G-MXGS03FKB0
+      # Contraseña del panel /admin. Configúrala como SECRETO en el panel de Render.
+      # Sin esta variable, el panel de administración queda DESACTIVADO (seguro por defecto).
+      - key: ADMIN_PASSWORD
+        sync: false

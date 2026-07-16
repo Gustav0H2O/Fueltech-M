@@ -5,6 +5,22 @@ const path = require('path');
 const Database = require('better-sqlite3');
 
 const DB_PATH = path.join(__dirname, 'fueltech.db');
+
+// Idempotencia: si ya hay datos y no se fuerza, NO reconstruir la base. Así los
+// vehículos que cargues por el panel de administración sobreviven a los redeploys
+// (cuando el hosting tiene disco persistente). Reconstruye a la fuerza con FORCE_SEED=1.
+if (!process.env.FORCE_SEED && fs.existsSync(DB_PATH)) {
+  try {
+    const check = new Database(DB_PATH, { readonly: true });
+    const n = check.prepare('SELECT COUNT(*) c FROM vehicles').get().c;
+    check.close();
+    if (n > 0) {
+      console.log(`seed: la base ya tiene ${n} vehículos — omitido (usa FORCE_SEED=1 para reconstruir).`);
+      process.exit(0);
+    }
+  } catch (e) { /* base inexistente/corrupta o sin tablas: reconstruimos abajo */ }
+}
+
 if (fs.existsSync(DB_PATH)) fs.unlinkSync(DB_PATH);
 const db = new Database(DB_PATH);
 db.exec(fs.readFileSync(path.join(__dirname, 'schema.sql'), 'utf8'));

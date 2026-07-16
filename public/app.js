@@ -4,6 +4,9 @@ const html = htm.bind(React.createElement);
 
 const api = (url) => fetch(url).then(r => { if (!r.ok) throw new Error(r.status); return r.json(); });
 
+/* Evento a Google Analytics (si está cargado). Silencioso si no. */
+const track = (name, params) => { try { if (window.gtag) window.gtag('event', name, params || {}); } catch (e) {} };
+
 /* Icono Lucide montado como SVG (espera a que window.lucide esté listo).
    Sin aria-label => decorativo (aria-hidden); con aria-label => icono con significado propio. */
 function Icon({ name, size = 16, className = '', spin = false, label }) {
@@ -96,7 +99,12 @@ function VehicleDetail({ id }) {
     // el error se limpia al cambiar de vehículo, y una respuesta vieja no pisa a la nueva
     let alive = true;
     setV(null); setErr(null);
-    api(`/api/vehicles/${id}`).then(d => alive && setV(d)).catch(e => alive && setErr(e));
+    api(`/api/vehicles/${id}`).then(d => {
+      if (!alive) return;
+      setV(d);
+      // page_view por vehículo → alimenta el reporte de Páginas de GA4 en el SPA
+      track('page_view', { page_path: '/vehiculo/' + (d.slug || ''), page_title: `${d.brand} ${d.model}` });
+    }).catch(e => alive && setErr(e));
     return () => { alive = false; };
   }, [id]);
   if (err) return html`<div class="empty" aria-live="polite">ERROR CARGANDO EL VEHÍCULO — INTENTA DE NUEVO</div>`;
@@ -108,8 +116,9 @@ function VehicleDetail({ id }) {
   // Compartir la ficha = distribución gratis (cada envío por WhatsApp trae usuarios nuevos)
   const shareUrl = `${location.origin}/vehiculo/${v.slug || ''}`;
   const shareMsg = `${v.brand} ${v.model} — ${psiText} PSI. Ficha técnica en FuelTech Master:`;
-  const shareWhatsApp = () => window.open(`https://wa.me/?text=${encodeURIComponent(shareMsg + ' ' + shareUrl)}`, '_blank', 'noopener');
+  const shareWhatsApp = () => { track('compartir', { method: 'whatsapp' }); window.open(`https://wa.me/?text=${encodeURIComponent(shareMsg + ' ' + shareUrl)}`, '_blank', 'noopener'); };
   const shareNative = async () => {
+    track('compartir', { method: 'nativo' });
     try {
       if (navigator.share) await navigator.share({ title: 'FuelTech Master', text: shareMsg, url: shareUrl });
       else { await navigator.clipboard.writeText(shareUrl); }
@@ -262,6 +271,7 @@ function ChatBot({ vehicleId }) {
     const userMsg = { role: 'user', content: text };
     setMessages(prev => [...prev, userMsg]);
     setLoading(true);
+    track('usar_chat', {});
 
     try {
       const res = await fetch('/api/chat', {
@@ -407,7 +417,7 @@ function App() {
     const qs = new URLSearchParams(Object.entries(filters).filter(([, v]) => v)).toString();
     return fetch(`/api/vehicles?${qs}`, { signal })
       .then(r => { if (!r.ok) throw new Error(r.status); return r.json(); })
-      .then(rows => { if (seq === seqRef.current) { setResults(rows); setSearchErr(false); setIsSearching(false); } })
+      .then(rows => { if (seq === seqRef.current) { setResults(rows); setSearchErr(false); setIsSearching(false); if (rows.length === 0) track('busqueda_sin_resultado', { q: filters.model || '' }); } })
       .catch((e) => { 
         if (e.name === 'AbortError') return;
         if (seq === seqRef.current) { setResults([]); setSearchErr(true); setIsSearching(false); } 

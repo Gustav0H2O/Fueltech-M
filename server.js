@@ -21,6 +21,29 @@ const BASE_URL = (process.env.BASE_URL || 'https://fueltech-master.onrender.com'
    y hacía que el chat respondiera 502. Default a un modelo real y estable. */
 const GEMINI_MODEL = process.env.GEMINI_MODEL || 'gemini-1.5-flash';
 
+/* Google Analytics 4. Configurable; vacío = desactivado (y no se toca la CSP). */
+const GA_ID = process.env.GA_MEASUREMENT_ID || 'G-MXGS03FKB0';
+
+/* Panel de administración: protegido con contraseña por variable de entorno.
+   Si ADMIN_PASSWORD no está definida, el panel queda DESACTIVADO (seguro por defecto). */
+const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD || '';
+const ADMIN_SECRET = ADMIN_PASSWORD
+  ? crypto.createHash('sha256').update('ftadmin|' + ADMIN_PASSWORD).digest()
+  : null;
+const signAdminToken = (ttlMs = 8 * 3600e3) => {
+  const exp = Date.now() + ttlMs;
+  const sig = crypto.createHmac('sha256', ADMIN_SECRET).update(String(exp)).digest('base64url');
+  return `${exp}.${sig}`;
+};
+const verifyAdminToken = (token) => {
+  if (!ADMIN_SECRET || typeof token !== 'string' || !token.includes('.')) return false;
+  const [exp, sig] = token.split('.');
+  if (!/^\d+$/.test(exp) || Number(exp) < Date.now()) return false;
+  const expected = crypto.createHmac('sha256', ADMIN_SECRET).update(exp).digest('base64url');
+  const a = Buffer.from(sig), b = Buffer.from(expected);
+  return a.length === b.length && crypto.timingSafeEqual(a, b);
+};
+
 /* ---------- Saneo estricto de parámetros ----------
    better-sqlite3 lanza si se le pasa NaN como parámetro → un query malicioso
    como ?limit=abc tiraba un 500. Todo entero externo pasa por aquí. */
@@ -64,12 +87,13 @@ function createApp(db, statsDb) {
           "'self'",
           "'sha256-F9dVDQv5gEOHF0o9y7tZzMIBD0kCrcE0up8c/8KomQE='",
           "'sha256-7GhNN277uMGXe9dIUeIQSUgq8nBXJUEdmoyu+v0yd9c='",
-          (req, res) => `'nonce-${res.locals.cspNonce}'`
+          (req, res) => `'nonce-${res.locals.cspNonce}'`,
+          ...(GA_ID ? ['https://www.googletagmanager.com'] : [])
         ],
         styleSrc: ["'self'", "'unsafe-inline'", 'https://fonts.googleapis.com'],
         fontSrc: ["'self'", 'https://fonts.gstatic.com'],
-        imgSrc: ["'self'", 'data:'],
-        connectSrc: ["'self'"],
+        imgSrc: ["'self'", 'data:', ...(GA_ID ? ['https://www.googletagmanager.com', 'https://*.google-analytics.com'] : [])],
+        connectSrc: ["'self'", ...(GA_ID ? ['https://www.googletagmanager.com', 'https://*.google-analytics.com', 'https://*.analytics.google.com'] : [])],
         workerSrc: ["'self'", 'blob:'],
         objectSrc: ["'none'"],
         baseUri: ["'self'"],
@@ -154,6 +178,11 @@ function createApp(db, statsDb) {
     if (rootContent) {
       html = html.replace(/<!--ROOT-CONTENT-START-->[\s\S]*?<!--ROOT-CONTENT-END-->/,
         `<!--ROOT-CONTENT-START-->${rootContent}<!--ROOT-CONTENT-END-->`);
+    }
+    if (GA_ID) {
+      const ga = `<script async src="https://www.googletagmanager.com/gtag/js?id=${GA_ID}"></script>` +
+        `<script${nonce ? ` nonce="${nonce}"` : ''}>window.dataLayer=window.dataLayer||[];function gtag(){dataLayer.push(arguments);}gtag('js',new Date());gtag('config','${GA_ID}');</script>`;
+      html = html.replace('</head>', ga + '</head>');
     }
     return html;
   }
@@ -260,8 +289,11 @@ function createApp(db, statsDb) {
 
   app.get('/robots.txt', (req, res) => {
     res.type('text/plain').set('Cache-Control', 'public, max-age=3600').send(
-      `User-agent: *\nAllow: /\nDisallow: /api/\n\nSitemap: ${BASE_URL}/sitemap.xml\n`);
+      `User-agent: *\nAllow: /\nDisallow: /api/\nDisallow: /admin\n\nSitemap: ${BASE_URL}/sitemap.xml\n`);
   });
+
+  // Panel de administración (protegido por contraseña en el API; ver /api/admin/*)
+  app.get('/admin', (req, res) => res.sendFile(path.join(__dirname, 'public', 'admin.html')));
 
   app.use(express.static(path.join(__dirname, 'public'), {
     maxAge: PROD ? '1d' : 0,
@@ -567,6 +599,224 @@ ${dbContext}`;
       console.error('Gemini API error:', err.message || err);
       res.status(502).json({ error: 'Error al comunicar con la IA. Intenta de nuevo.' });
     }
+  });
+
+  /* ---------- Panel de administración (carga de datos sin editar seed.js) ----------
+     Autenticación: contraseña (ADMIN_PASSWORD) → token HMAC firmado con expiración.
+     Si ADMIN_PASSWORD no está definida, todo el panel responde 503 (desactivado). */
+  const BODY_TYPES = ['sedan', 'hatchback', 'pickup', 'suv', 'van'];
+  const ZONES = ['rear_seat', 'tank_drop', 'trunk_access', 'frame_rail'];
+  const ASSEMBLY = ['external', 'hanger_tbi', 'hanger_return', 'module_returnless', 'vortec', 'gdi_low'];
+  const str = (x, max = 500) => (typeof x === 'string' ? x.trim().slice(0, max) : '');
+  const num = (x) => (Number.isFinite(Number(x)) && x !== '' && x !== null ? Number(x) : null);
+
+  const adminLimiter = rateLimit({ windowMs: 60_000, limit: 40, standardHeaders: true, legacyHeaders: false });
+  const requireAdmin = (req, res, next) => {
+    if (!ADMIN_PASSWORD) return res.status(503).json({ error: 'Panel no configurado. Define la variable ADMIN_PASSWORD.' });
+    const auth = req.headers.authorization || '';
+    const token = auth.startsWith('Bearer ') ? auth.slice(7) : '';
+    if (!verifyAdminToken(token)) return res.status(401).json({ error: 'No autorizado' });
+    next();
+  };
+
+  app.post('/api/admin/login', adminLimiter, (req, res) => {
+    if (!ADMIN_PASSWORD) return res.status(503).json({ error: 'Panel no configurado. Define la variable ADMIN_PASSWORD.' });
+    const pass = typeof req.body?.password === 'string' ? req.body.password : '';
+    const a = Buffer.from(pass), b = Buffer.from(ADMIN_PASSWORD);
+    const ok = a.length === b.length && crypto.timingSafeEqual(a, b);
+    if (!ok) return res.status(401).json({ error: 'Contraseña incorrecta' });
+    res.set('Cache-Control', 'no-store').json({ token: signAdminToken() });
+  });
+
+  app.get('/api/admin/bootstrap', requireAdmin, (req, res) => {
+    res.set('Cache-Control', 'no-store').json({
+      brands: db.prepare('SELECT id, name FROM brands ORDER BY name').all(),
+      injection_types: db.prepare('SELECT id, code, name FROM injection_types ORDER BY id').all(),
+      pumps: db.prepare('SELECT id, code, manufacturer FROM fuel_pumps ORDER BY manufacturer, code').all(),
+      enums: { body_types: BODY_TYPES, zones: ZONES, assembly: ASSEMBLY },
+      counts: {
+        vehicles: db.prepare('SELECT COUNT(*) c FROM vehicles').get().c,
+        brands: db.prepare('SELECT COUNT(*) c FROM brands').get().c,
+        pumps: db.prepare('SELECT COUNT(*) c FROM fuel_pumps').get().c,
+        unverified: db.prepare('SELECT COUNT(*) c FROM vehicles WHERE data_verified = 0').get().c
+      }
+    });
+  });
+
+  app.get('/api/admin/vehicles', requireAdmin, (req, res) => {
+    const q = str(req.query.q, 60);
+    const rows = db.prepare(`
+      SELECT v.id, b.name AS brand, v.model, v.year_from, v.year_to, v.engine, v.data_verified
+      FROM vehicles v JOIN brands b ON b.id = v.brand_id
+      ${q ? "WHERE v.model LIKE @q OR b.name LIKE @q" : ''}
+      ORDER BY b.name, v.model, v.year_from LIMIT 1000
+    `).all(q ? { q: `%${q.replace(/[%_\\]/g, '\\$&')}%` } : {});
+    res.set('Cache-Control', 'no-store').json(rows.map(r => ({ ...r, data_verified: !!r.data_verified })));
+  });
+
+  app.get('/api/admin/vehicles/:id', requireAdmin, (req, res) => {
+    const id = toInt(req.params.id, 1, 1e9);
+    const vehicle = db.prepare('SELECT * FROM vehicles WHERE id = ?').get(id);
+    if (!vehicle) return res.status(404).json({ error: 'No encontrado' });
+    const link = db.prepare('SELECT * FROM vehicle_modules WHERE vehicle_id = ?').get(id);
+    const module = link ? db.prepare('SELECT * FROM fuel_modules WHERE id = ?').get(link.module_id) : null;
+    const pumps = link ? db.prepare('SELECT pump_id, is_oem, fitment FROM module_pumps WHERE module_id = ?').all(link.module_id) : [];
+    res.set('Cache-Control', 'no-store').json({ vehicle, link, module, pumps });
+  });
+
+  function buildPayload(body) {
+    const b = body || {};
+    const brand_id = toInt(b.brand_id, 1, 1e9);
+    const injection_type_id = toInt(b.injection_type_id, 1, 1e9);
+    const year_from = toInt(b.year_from, 1900, 2100);
+    const year_to = toInt(b.year_to, 1900, 2100);
+    const model = str(b.model, 80), engine = str(b.engine, 80);
+    const psimin = num(b.rail_pressure_psi_min), psimax = num(b.rail_pressure_psi_max);
+    if (!brand_id) throw new Error('Marca requerida');
+    if (!injection_type_id) throw new Error('Tipo de inyección requerido');
+    if (!model) throw new Error('Modelo requerido');
+    if (!engine) throw new Error('Motor requerido');
+    if (year_from === null || year_to === null || year_to < year_from) throw new Error('Rango de años inválido');
+    if (psimin === null || psimax === null || psimax < psimin) throw new Error('Presiones de riel inválidas');
+    const m = b.module || {};
+    const module = {
+      code: str(m.code, 60), name: str(m.name, 120),
+      assembly_type: ASSEMBLY.includes(m.assembly_type) ? m.assembly_type : 'module_returnless',
+      regulated_psi: num(m.regulated_psi), flow_lph: num(m.flow_lph),
+      regulator_type: str(m.regulator_type, 120) || null, float_type: str(m.float_type, 120) || null,
+      strainer_ref: str(m.strainer_ref, 120) || null, connector_desc: str(m.connector_desc, 160) || null,
+      lines_desc: str(m.lines_desc, 160) || null, mount_desc: str(m.mount_desc, 160) || null,
+      diagram_key: str(m.diagram_key, 60) || 'module_generic'
+    };
+    if (!module.code) throw new Error('Código del módulo requerido');
+    if (!module.name) throw new Error('Nombre del módulo requerido');
+    if (module.regulated_psi === null) throw new Error('Presión regulada del módulo requerida');
+    if (module.flow_lph === null) throw new Error('Flujo del módulo requerido');
+    const l = b.link || {};
+    const link = {
+      location_text: str(l.location_text, 300),
+      location_zone: ZONES.includes(l.location_zone) ? l.location_zone : 'tank_drop',
+      requires_tank_removal: l.requires_tank_removal ? 1 : 0,
+      access_notes: str(l.access_notes, 300) || null
+    };
+    if (!link.location_text) throw new Error('Ubicación del módulo requerida');
+    const pumps = Array.isArray(b.pumps)
+      ? b.pumps.map(p => ({ pump_id: toInt(p.pump_id, 1, 1e9), is_oem: p.is_oem ? 1 : 0, fitment: str(p.fitment, 40) || 'directa' })).filter(p => p.pump_id)
+      : [];
+    return {
+      vehicle: { brand_id, model, year_from, year_to, engine, body_type: BODY_TYPES.includes(b.body_type) ? b.body_type : 'sedan', injection_type_id, rail_pressure_psi_min: psimin, rail_pressure_psi_max: psimax, notes: str(b.notes, 500) || null, data_verified: b.data_verified ? 1 : 0 },
+      module, link, pumps
+    };
+  }
+
+  const insModule = () => db.prepare(`INSERT INTO fuel_modules
+    (code,name,assembly_type,regulated_psi,flow_lph,regulator_type,float_type,strainer_ref,connector_desc,lines_desc,mount_desc,diagram_key)
+    VALUES (@code,@name,@assembly_type,@regulated_psi,@flow_lph,@regulator_type,@float_type,@strainer_ref,@connector_desc,@lines_desc,@mount_desc,@diagram_key)`);
+
+  const createVehicle = db.transaction((d) => {
+    const module_id = insModule().run(d.module).lastInsertRowid;
+    const vehicle_id = db.prepare(`INSERT INTO vehicles
+      (brand_id,model,year_from,year_to,engine,body_type,injection_type_id,rail_pressure_psi_min,rail_pressure_psi_max,notes,data_verified)
+      VALUES (@brand_id,@model,@year_from,@year_to,@engine,@body_type,@injection_type_id,@rail_pressure_psi_min,@rail_pressure_psi_max,@notes,@data_verified)`).run(d.vehicle).lastInsertRowid;
+    db.prepare(`INSERT INTO vehicle_modules (vehicle_id,module_id,location_text,location_zone,requires_tank_removal,access_notes)
+      VALUES (?,?,?,?,?,?)`).run(vehicle_id, module_id, d.link.location_text, d.link.location_zone, d.link.requires_tank_removal, d.link.access_notes);
+    const insPump = db.prepare('INSERT OR IGNORE INTO module_pumps (module_id,pump_id,is_oem,fitment) VALUES (?,?,?,?)');
+    for (const p of d.pumps) insPump.run(module_id, p.pump_id, p.is_oem, p.fitment);
+    return vehicle_id;
+  });
+
+  const updateVehicle = db.transaction((id, d) => {
+    db.prepare(`UPDATE vehicles SET brand_id=@brand_id,model=@model,year_from=@year_from,year_to=@year_to,engine=@engine,body_type=@body_type,injection_type_id=@injection_type_id,rail_pressure_psi_min=@rail_pressure_psi_min,rail_pressure_psi_max=@rail_pressure_psi_max,notes=@notes,data_verified=@data_verified WHERE id=@id`).run({ ...d.vehicle, id });
+    let link = db.prepare('SELECT module_id FROM vehicle_modules WHERE vehicle_id = ?').get(id);
+    let module_id = link?.module_id;
+    if (module_id) {
+      db.prepare(`UPDATE fuel_modules SET code=@code,name=@name,assembly_type=@assembly_type,regulated_psi=@regulated_psi,flow_lph=@flow_lph,regulator_type=@regulator_type,float_type=@float_type,strainer_ref=@strainer_ref,connector_desc=@connector_desc,lines_desc=@lines_desc,mount_desc=@mount_desc,diagram_key=@diagram_key WHERE id=@id`).run({ ...d.module, id: module_id });
+      db.prepare('UPDATE vehicle_modules SET location_text=?,location_zone=?,requires_tank_removal=?,access_notes=? WHERE vehicle_id=?').run(d.link.location_text, d.link.location_zone, d.link.requires_tank_removal, d.link.access_notes, id);
+    } else {
+      module_id = insModule().run(d.module).lastInsertRowid;
+      db.prepare('INSERT INTO vehicle_modules (vehicle_id,module_id,location_text,location_zone,requires_tank_removal,access_notes) VALUES (?,?,?,?,?,?)').run(id, module_id, d.link.location_text, d.link.location_zone, d.link.requires_tank_removal, d.link.access_notes);
+    }
+    db.prepare('DELETE FROM module_pumps WHERE module_id = ?').run(module_id);
+    const insPump = db.prepare('INSERT OR IGNORE INTO module_pumps (module_id,pump_id,is_oem,fitment) VALUES (?,?,?,?)');
+    for (const p of d.pumps) insPump.run(module_id, p.pump_id, p.is_oem, p.fitment);
+  });
+
+  app.post('/api/admin/vehicles', requireAdmin, (req, res) => {
+    try {
+      const d = buildPayload(req.body);
+      const id = createVehicle(d);
+      metaCache = null; pumpsCache = null;
+      res.json({ id });
+    } catch (e) { res.status(400).json({ error: e.message || 'Datos inválidos (¿código de módulo duplicado?)' }); }
+  });
+
+  app.put('/api/admin/vehicles/:id', requireAdmin, (req, res) => {
+    const id = toInt(req.params.id, 1, 1e9);
+    if (!db.prepare('SELECT 1 FROM vehicles WHERE id = ?').get(id)) return res.status(404).json({ error: 'No encontrado' });
+    try {
+      const d = buildPayload(req.body);
+      updateVehicle(id, d);
+      metaCache = null; pumpsCache = null;
+      res.json({ id });
+    } catch (e) { res.status(400).json({ error: e.message || 'Datos inválidos' }); }
+  });
+
+  app.delete('/api/admin/vehicles/:id', requireAdmin, (req, res) => {
+    const id = toInt(req.params.id, 1, 1e9);
+    const link = db.prepare('SELECT module_id FROM vehicle_modules WHERE vehicle_id = ?').get(id);
+    const del = db.transaction(() => {
+      db.prepare('DELETE FROM vehicles WHERE id = ?').run(id); // vehicle_modules cae por ON DELETE CASCADE
+      if (link?.module_id) {
+        const used = db.prepare('SELECT COUNT(*) c FROM vehicle_modules WHERE module_id = ?').get(link.module_id).c;
+        if (used === 0) {
+          db.prepare('DELETE FROM module_pumps WHERE module_id = ?').run(link.module_id);
+          db.prepare('DELETE FROM fuel_modules WHERE id = ?').run(link.module_id);
+        }
+      }
+    });
+    del();
+    metaCache = null;
+    res.json({ ok: true });
+  });
+
+  app.post('/api/admin/vehicles/:id/verify', requireAdmin, (req, res) => {
+    const id = toInt(req.params.id, 1, 1e9);
+    const info = db.prepare('UPDATE vehicles SET data_verified = ? WHERE id = ?').run(req.body?.data_verified ? 1 : 0, id);
+    if (!info.changes) return res.status(404).json({ error: 'No encontrado' });
+    res.json({ ok: true });
+  });
+
+  app.post('/api/admin/brands', requireAdmin, (req, res) => {
+    const name = str(req.body?.name, 60);
+    if (!name) return res.status(400).json({ error: 'Nombre requerido' });
+    const existing = db.prepare('SELECT id, name FROM brands WHERE name = ?').get(name);
+    if (existing) return res.json(existing);
+    const info = db.prepare('INSERT INTO brands (name) VALUES (?)').run(name);
+    metaCache = null;
+    res.json({ id: info.lastInsertRowid, name });
+  });
+
+  app.post('/api/admin/pumps', requireAdmin, (req, res) => {
+    const b = req.body || {};
+    const pump = {
+      code: str(b.code, 60), manufacturer: str(b.manufacturer, 60), pump_style: str(b.pump_style, 40) || 'turbina',
+      max_psi_direct: num(b.max_psi_direct), amperage_a: num(b.amperage_a), voltage_v: num(b.voltage_v) || 12,
+      flow_lph_free: num(b.flow_lph_free), inlet_desc: str(b.inlet_desc, 120) || null, outlet_desc: str(b.outlet_desc, 120) || null,
+      polarity_desc: str(b.polarity_desc, 120) || null, diagram_key: str(b.diagram_key, 60) || 'pump_generic'
+    };
+    if (!pump.code || !pump.manufacturer) return res.status(400).json({ error: 'Código y fabricante requeridos' });
+    if (pump.max_psi_direct === null || pump.amperage_a === null) return res.status(400).json({ error: 'Presión máx. y amperaje requeridos' });
+    try {
+      const info = db.prepare(`INSERT INTO fuel_pumps (code,manufacturer,pump_style,max_psi_direct,amperage_a,voltage_v,flow_lph_free,inlet_desc,outlet_desc,polarity_desc,diagram_key)
+        VALUES (@code,@manufacturer,@pump_style,@max_psi_direct,@amperage_a,@voltage_v,@flow_lph_free,@inlet_desc,@outlet_desc,@polarity_desc,@diagram_key)`).run(pump);
+      pumpsCache = null;
+      res.json({ id: info.lastInsertRowid });
+    } catch (e) { res.status(400).json({ error: 'Código de pila duplicado o inválido' }); }
+  });
+
+  app.get('/api/admin/missing', requireAdmin, (req, res) => {
+    const rows = statsDb.prepare('SELECT q, SUM(count) veces FROM missing_searches GROUP BY q ORDER BY veces DESC, q LIMIT 100').all();
+    res.set('Cache-Control', 'no-store').json(rows);
   });
 
   app.use('/api', (req, res) => res.status(404).json({ error: 'No encontrado' }));
