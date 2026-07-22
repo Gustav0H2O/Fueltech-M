@@ -479,3 +479,28 @@ for (const t of ['injection_types', 'brands', 'vehicles', 'fuel_modules', 'fuel_
   console.log(`  ${t}: ${db.prepare(`SELECT COUNT(*) c FROM ${t}`).get().c} filas`);
 }
 db.close();
+
+// Inicializar stats.db para que las tablas de métricas existan al arrancar
+const statsDbFile = new Database(path.join(__dirname, 'stats.db'));
+statsDbFile.pragma('journal_mode = WAL');
+statsDbFile.exec(`
+  CREATE TABLE IF NOT EXISTS visit_days (
+    day          TEXT NOT NULL,
+    visitor_hash TEXT NOT NULL,
+    PRIMARY KEY (day, visitor_hash)
+  );
+  CREATE TABLE IF NOT EXISTS meta (key TEXT PRIMARY KEY, value TEXT NOT NULL);
+  CREATE TABLE IF NOT EXISTS chat_limits (
+    day TEXT NOT NULL,
+    device_id TEXT NOT NULL,
+    count INTEGER NOT NULL,
+    PRIMARY KEY (day, device_id)
+  );
+  CREATE TABLE IF NOT EXISTS missing_searches (
+    day TEXT NOT NULL,
+    q TEXT NOT NULL,
+    count INTEGER NOT NULL DEFAULT 0,
+    PRIMARY KEY (day, q)
+  );
+`);
+statsDbFile.close();
