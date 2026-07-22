@@ -7,7 +7,7 @@ const helmet = require('helmet');
 const compression = require('compression');
 const rateLimit = require('express-rate-limit');
 const morgan = require('morgan');
-const Database = require('better-sqlite3');
+const { db, statsDb } = require('./db');
 const { GoogleGenerativeAI } = require('@google/generative-ai');
 
 const PROD = process.env.NODE_ENV === 'production';
@@ -57,12 +57,12 @@ const psiToBar = (psi) => psi == null ? null : +(psi * 0.0689476).toFixed(2);
 /* Crea y configura la aplicación Express.
    Recibe instancias de Database (better-sqlite3) para fueltech y stats.
    Esto permite tests con bases en memoria sin tocar los archivos reales. */
-function createApp(db, statsDb) {
+async function createApp() {
   const visitSalt = process.env.VISIT_SALT || crypto.randomBytes(32).toString('hex');
-  const getTotal = () => +(statsDb.prepare(`SELECT value FROM meta WHERE key = 'total_visits'`).get()?.value || 0);
-  const bumpTotal = statsDb.prepare(`
+  const getTotal = async () => +(await statsDb.get(`SELECT value FROM meta WHERE key = 'total_visits'`, )?.value || 0);
+  const bumpTotal = { run: async () => statsDb.run(`
     INSERT INTO meta (key, value) VALUES ('total_visits', '1')
-    ON CONFLICT(key) DO UPDATE SET value = CAST(CAST(value AS INTEGER) + 1 AS TEXT)`);
+    ON CONFLICT(key) DO UPDATE SET value = CAST(CAST(value AS INTEGER) + 1 AS TEXT)`) };
 
   const app = express();
   app.disable('x-powered-by');
@@ -74,7 +74,7 @@ function createApp(db, statsDb) {
     next();
   });
 
-  const dbDump = db.prepare(`SELECT b.name as brand, v.model, v.year_from, v.year_to, v.engine, v.rail_pressure_psi_min, v.rail_pressure_psi_max FROM vehicles v JOIN brands b on v.brand_id=b.id`).all();
+  const dbDump = await db.all(`SELECT b.name as brand, v.model, v.year_from, v.year_to, v.engine, v.rail_pressure_psi_min, v.rail_pressure_psi_max FROM vehicles v JOIN brands b on v.brand_id=b.id`, );
   const globalDBContext = 'Base de Datos (Vehículos soportados): ' + dbDump.map(r => `${r.brand} ${r.model} ${r.year_from}-${r.year_to} ${r.engine} PSI:${r.rail_pressure_psi_min}-${r.rail_pressure_psi_max}`).join('; ');
   // trust proxy ajustable para tests
   app.set('trust proxy', process.env.TRUST_PROXY !== '0' ? 1 : 0);
@@ -131,7 +131,7 @@ function createApp(db, statsDb) {
 
   /* ---------- Contador de visitantes ---------- */
   const visitLimiter = rateLimit({ windowMs: 60_000, limit: 10, standardHeaders: true, legacyHeaders: false });
-  app.post('/api/visit', visitLimiter, (req, res) => {
+  app.post('/api/visit', visitLimiter, async (req, res) => {
     const day = new Date().toISOString().slice(0, 10);
     const hash = crypto.createHash('sha512')
       .update(`${visitSalt}|${day}|${req.ip}`)
@@ -139,9 +139,9 @@ function createApp(db, statsDb) {
     const inserted = statsDb.prepare(`INSERT OR IGNORE INTO visit_days (day, visitor_hash) VALUES (?, ?)`)
       .run(day, hash).changes;
     if (inserted) bumpTotal.run();
-    const today = statsDb.prepare(`SELECT COUNT(*) c FROM visit_days WHERE day = ?`).get(day).c;
+    const today = await statsDb.get(`SELECT COUNT(*) c FROM visit_days WHERE day = ?`, day).c;
     res.set('Cache-Control', 'no-store');
-    res.json({ total: getTotal(), today });
+    res.json({ total: await getTotal(), today });
   });
 
   /* ---------- SEO: páginas renderizadas en servidor + sitemap ----------
@@ -205,16 +205,16 @@ function createApp(db, statsDb) {
   statsDb.exec(`CREATE TABLE IF NOT EXISTS missing_searches (
     day TEXT NOT NULL, q TEXT NOT NULL, count INTEGER NOT NULL DEFAULT 0,
     PRIMARY KEY (day, q)) WITHOUT ROWID`);
-  const bumpMissing = statsDb.prepare(`INSERT INTO missing_searches (day, q, count) VALUES (?, ?, 1)
-    ON CONFLICT(day, q) DO UPDATE SET count = count + 1`);
+  const bumpMissing = { run: async (p1, p2) => statsDb.run(`INSERT INTO missing_searches (day, q, count) VALUES (?, ?, 1)
+    ON CONFLICT(day, q) DO UPDATE SET count = count + 1`, [p1, p2]) };
 
-  const vehicleForPage = db.prepare(`
+  const vehicleForPage = { get: async (id) => db.get(`
     SELECT v.id, b.name AS brand, v.model, v.year_from, v.year_to, v.engine,
            it.name AS injection_name, v.rail_pressure_psi_min, v.rail_pressure_psi_max, v.notes
     FROM vehicles v JOIN brands b ON b.id = v.brand_id
-    JOIN injection_types it ON it.id = v.injection_type_id WHERE v.id = ?`);
+    JOIN injection_types it ON it.id = v.injection_type_id WHERE v.id = ?`, [id]) };
 
-  app.get('/', (req, res) => {
+  app.get('/', async (req, res) => {
     res.set('Cache-Control', 'public, max-age=300');
     res.type('html').send(renderShell({
       title: HOME_TITLE, description: HOME_DESC, canonicalPath: '/', nonce: res.locals.cspNonce,
@@ -227,10 +227,10 @@ function createApp(db, statsDb) {
     }));
   });
 
-  app.get('/vehiculo/:slug', (req, res, next) => {
+  app.get('/vehiculo/:slug', async (req, res, next) => {
     const id = toInt(String(req.params.slug).split('-').pop(), 1, 1e9);
     if (id === null) return next();
-    const v = vehicleForPage.get(id);
+    const v = await vehicleForPage.get(id);
     if (!v) return next();
     const canonicalSlug = vehicleSlug(v);
     if (req.params.slug !== canonicalSlug) return res.redirect(301, `/vehiculo/${canonicalSlug}`);
@@ -286,7 +286,7 @@ function createApp(db, statsDb) {
     }));
   });
 
-  app.get('/vehiculos', (req, res) => {
+  app.get('/vehiculos', async (req, res) => {
     const rows = db.prepare(`SELECT v.id, b.name AS brand, v.model, v.year_from, v.year_to, v.rail_pressure_psi_max
       FROM vehicles v JOIN brands b ON b.id = v.brand_id ORDER BY b.name, v.model, v.year_from`).all();
     const items = rows.map(v => `<li><a href="/vehiculo/${vehicleSlug(v)}" style="color:#E5E7EB;text-decoration:none">${esc(v.brand)} ${esc(v.model)} ${v.year_from}-${v.year_to} — ${v.rail_pressure_psi_max} PSI</a></li>`).join('');
@@ -384,7 +384,7 @@ function createApp(db, statsDb) {
       <p style="margin-top:10px;color:#979EA7">Más guías: ${GUIDES.map(x => `<a href="/guia/${x.slug}" style="color:#979EA7">${x.label}</a>`).join(' · ')}</p>
     </main>`;
 
-  app.get('/guias', (req, res) => {
+  app.get('/guias', async (req, res) => {
     const items = GUIDES.map(g => `<li><a href="/guia/${g.slug}" style="color:#E5E7EB;text-decoration:none">${g.h1}</a></li>`).join('');
     res.set('Cache-Control', 'public, max-age=3600');
     res.type('html').send(renderShell({
@@ -395,7 +395,7 @@ function createApp(db, statsDb) {
     }));
   });
 
-  app.get('/guia/:slug', (req, res, next) => {
+  app.get('/guia/:slug', async (req, res, next) => {
     const g = GUIDES.find(x => x.slug === req.params.slug);
     if (!g) return next();
     res.set('Cache-Control', 'public, max-age=3600');
@@ -406,7 +406,7 @@ function createApp(db, statsDb) {
     }));
   });
 
-  app.get('/sitemap.xml', (req, res) => {
+  app.get('/sitemap.xml', async (req, res) => {
     const rows = db.prepare(`SELECT v.id, b.name AS brand, v.model, v.year_from, v.year_to
       FROM vehicles v JOIN brands b ON b.id = v.brand_id`).all();
     const locs = [`${BASE_URL}/`, `${BASE_URL}/vehiculos`, `${BASE_URL}/guias`,
@@ -417,7 +417,7 @@ function createApp(db, statsDb) {
       locs.map(u => `  <url><loc>${esc(u)}</loc></url>`).join('\n') + `\n</urlset>\n`);
   });
 
-  app.get('/robots.txt', (req, res) => {
+  app.get('/robots.txt', async (req, res) => {
     res.type('text/plain').set('Cache-Control', 'public, max-age=3600').send(
       `User-agent: *\nAllow: /\nDisallow: /api/\nDisallow: /admin\n\nSitemap: ${BASE_URL}/sitemap.xml\n`);
   });
@@ -434,13 +434,13 @@ function createApp(db, statsDb) {
 
   // --- Catálogos para filtros ---
   let metaCache = null;
-  app.get('/api/meta', catalogLimiter, (req, res) => {
+  app.get('/api/meta', catalogLimiter, async (req, res) => {
     if (!metaCache) {
       metaCache = {
-        brands: db.prepare(`SELECT id, name FROM brands ORDER BY name`).all(),
-        injection_types: db.prepare(`SELECT id, code, name, description FROM injection_types ORDER BY id`).all(),
-        year_range: db.prepare(`SELECT MIN(year_from) min, MAX(year_to) max FROM vehicles`).get(),
-        total_vehicles: db.prepare(`SELECT COUNT(*) c FROM vehicles`).get().c
+        brands: await db.all(`SELECT id, name FROM brands ORDER BY name`, ),
+        injection_types: await db.all(`SELECT id, code, name, description FROM injection_types ORDER BY id`, ),
+        year_range: await db.get(`SELECT MIN(year_from) min, MAX(year_to) max FROM vehicles`, ),
+        total_vehicles: await db.get(`SELECT COUNT(*) c FROM vehicles`, ).c
       };
     }
     res.set('Cache-Control', 'public, max-age=300');
@@ -449,7 +449,7 @@ function createApp(db, statsDb) {
 
   // --- Buscador ---
   const MAX_PAGE_SIZE = 200;
-  app.get('/api/vehicles', (req, res) => {
+  app.get('/api/vehicles', async (req, res) => {
     const { brand_id, model, year, injection_type_id } = req.query;
     const where = [];
     const params = {};
@@ -502,7 +502,7 @@ function createApp(db, statsDb) {
   });
 
   // --- Ficha completa anidada ---
-  app.get('/api/vehicles/:id', (req, res) => {
+  app.get('/api/vehicles/:id', async (req, res) => {
     const id = toInt(req.params.id, 1, 1e9);
     if (id === null) return res.status(404).json({ error: 'Vehículo no encontrado' });
     const v = db.prepare(`
@@ -573,19 +573,19 @@ function createApp(db, statsDb) {
   });
 
   // --- Comentarios de vehículos ---
-  app.get('/api/vehicles/:id/comments', (req, res) => {
+  app.get('/api/vehicles/:id/comments', async (req, res) => {
     const vehicle_id = toInt(req.params.id, 1, 1e9);
     if (vehicle_id === null) return res.status(404).json({ error: 'Vehículo no válido' });
-    const rows = db.prepare(`
+    const rows = await db.all(`
       SELECT id, parent_id, author_name, content, created_at
       FROM vehicle_comments
       WHERE vehicle_id = ?
       ORDER BY created_at ASC
-    `).all(vehicle_id);
+    `, [vehicle_id]);
     res.json(rows);
   });
 
-  app.post('/api/vehicles/:id/comments', (req, res) => {
+  app.post('/api/vehicles/:id/comments', async (req, res) => {
     const vehicle_id = toInt(req.params.id, 1, 1e9);
     if (vehicle_id === null) return res.status(404).json({ error: 'Vehículo no válido' });
     const { author_name, content, parent_id } = req.body;
@@ -599,17 +599,17 @@ function createApp(db, statsDb) {
 
     let pId = toInt(parent_id, 1, 1e9);
     if (pId !== null) {
-      const parent = db.prepare('SELECT id FROM vehicle_comments WHERE id = ? AND vehicle_id = ?').get(pId, vehicle_id);
+      const parent = await db.get('SELECT id FROM vehicle_comments WHERE id = ? AND vehicle_id = ?', [pId, vehicle_id]);
       if (!parent) pId = null;
     }
 
     try {
-      const info = db.prepare(`
+      const id = await db.insertReturningId(`
         INSERT INTO vehicle_comments (vehicle_id, parent_id, author_name, content)
         VALUES (?, ?, ?, ?)
-      `).run(vehicle_id, pId, name, msg);
+      `, [vehicle_id, pId, name, msg]);
       
-      const newComment = db.prepare(`SELECT id, parent_id, author_name, content, created_at FROM vehicle_comments WHERE id = ?`).get(info.lastInsertRowid);
+      const newComment = await db.get(`SELECT id, parent_id, author_name, content, created_at FROM vehicle_comments WHERE id = ?`, [id]);
       res.json(newComment);
     } catch (e) {
       console.error(e);
@@ -618,7 +618,7 @@ function createApp(db, statsDb) {
   });
 
   // --- Catálogo de módulos ---
-  app.get('/api/modules', catalogLimiter, (req, res) => {
+  app.get('/api/modules', catalogLimiter, async (req, res) => {
     const limit = toInt(req.query.limit, 1, MAX_PAGE_SIZE) ?? MAX_PAGE_SIZE;
     const offset = toInt(req.query.offset, 0, 10000) ?? 0;
     const rows = db.prepare(`
@@ -634,25 +634,25 @@ function createApp(db, statsDb) {
     res.json(rows.map(r => ({ ...r, regulated_bar: psiToBar(r.regulated_psi) })));
   });
 
-  app.get('/api/modules/:id', (req, res) => {
-    const m = db.prepare(`SELECT * FROM fuel_modules WHERE id = ?`).get(toInt(req.params.id, 1, 1e9));
+  app.get('/api/modules/:id', async (req, res) => {
+    const m = await db.get(`SELECT * FROM fuel_modules WHERE id = ?`, toInt(req.params.id, 1, 1e9));
     if (!m) return res.status(404).json({ error: 'Módulo no encontrado' });
     res.json({ ...m, regulated_bar: psiToBar(m.regulated_psi) });
   });
 
   // --- Catálogo de pilas ---
   let pumpsCache = null;
-  app.get('/api/pumps', catalogLimiter, (req, res) => {
+  app.get('/api/pumps', catalogLimiter, async (req, res) => {
     if (!pumpsCache) {
-      pumpsCache = db.prepare(`SELECT * FROM fuel_pumps ORDER BY manufacturer, code`).all()
+      pumpsCache = await db.all(`SELECT * FROM fuel_pumps ORDER BY manufacturer, code`, )
         .map(p => ({ ...p, max_bar_direct: psiToBar(p.max_psi_direct) }));
     }
     res.set('Cache-Control', 'public, max-age=300');
     res.json(pumpsCache);
   });
 
-  app.get('/api/pumps/:id', (req, res) => {
-    const p = db.prepare(`SELECT * FROM fuel_pumps WHERE id = ?`).get(toInt(req.params.id, 1, 1e9));
+  app.get('/api/pumps/:id', async (req, res) => {
+    const p = await db.get(`SELECT * FROM fuel_pumps WHERE id = ?`, toInt(req.params.id, 1, 1e9));
     if (!p) return res.status(404).json({ error: 'Pila no encontrada' });
     res.json({ ...p, max_bar_direct: psiToBar(p.max_psi_direct) });
   });
@@ -669,11 +669,11 @@ function createApp(db, statsDb) {
       PRIMARY KEY (day, device_id)
     ) WITHOUT ROWID
   `);
-  const getChatCount = statsDb.prepare(`SELECT count FROM chat_limits WHERE day = ? AND device_id = ?`);
-  const bumpChatCount = statsDb.prepare(`
+  const getChatCount = { get: async (day, device_id) => statsDb.get(`SELECT count FROM chat_limits WHERE day = ? AND device_id = ?`, [day, device_id]) };
+  const bumpChatCount = { run: async (day, device_id) => statsDb.run(`
     INSERT INTO chat_limits (day, device_id, count) VALUES (?, ?, 1)
     ON CONFLICT(day, device_id) DO UPDATE SET count = count + 1
-  `);
+  `, [day, device_id]) };
 
   const chatLimiter = rateLimit({ windowMs: 60_000, limit: 10, standardHeaders: true, legacyHeaders: false });
   const genAI = process.env.GEMINI_API_KEY
@@ -704,13 +704,13 @@ function createApp(db, statsDb) {
       const actualDeviceId = validDevice ? `d:${deviceId}` : `ip:${ipHash}`;
       const ipCapKey = `ipcap:${ipHash}`;
       const IP_DAILY_CEILING = 30;
-      if ((getChatCount.get(day, ipCapKey)?.count || 0) >= IP_DAILY_CEILING) {
+      if (((await getChatCount.get(day, ipCapKey))?.count || 0) >= IP_DAILY_CEILING) {
         return res.json({
           response: '', remaining: 0, limitReached: true,
           message: 'Se alcanzó el límite diario de consultas desde esta red. Vuelve mañana o explora el catálogo directamente.'
         });
       }
-      const row = getChatCount.get(day, actualDeviceId);
+      const row = await getChatCount.get(day, actualDeviceId);
       const used = row ? row.count : 0;
       const remaining = Math.max(0, CHAT_DAILY_LIMIT - used);
 
@@ -727,7 +727,7 @@ function createApp(db, statsDb) {
       if (vehicleId) {
         const vId = toInt(vehicleId, 1, 1e9);
         if (vId) {
-          const v = db.prepare(`SELECT v.model, b.name AS brand, v.year_from, v.year_to, v.engine, it.name AS injection, v.rail_pressure_psi_min, v.rail_pressure_psi_max FROM vehicles v JOIN brands b ON b.id = v.brand_id JOIN injection_types it ON it.id = v.injection_type_id WHERE v.id = ?`).get(vId);
+          const v = await db.get(`SELECT v.model, b.name AS brand, v.year_from, v.year_to, v.engine, it.name AS injection, v.rail_pressure_psi_min, v.rail_pressure_psi_max FROM vehicles v JOIN brands b ON b.id = v.brand_id JOIN injection_types it ON it.id = v.injection_type_id WHERE v.id = ?`, vId);
           if (v) {
             dbContext = `\nContexto actual del usuario (vehículo seleccionado en la app): ${v.brand} ${v.model} (${v.year_from}-${v.year_to}), Motor ${v.engine}, Inyección ${v.injection}. Presión de riel: ${v.rail_pressure_psi_min}-${v.rail_pressure_psi_max} PSI. Si el usuario pregunta por "este vehículo" o "este carro", se refiere a este.`;
           }
@@ -766,8 +766,8 @@ ${dbContext}`;
       const result = await chat.sendMessage(cleanMsg);
       const response = result.response.text().slice(0, 3000);
 
-      bumpChatCount.run(day, actualDeviceId);
-      bumpChatCount.run(day, ipCapKey);
+      await bumpChatCount.run(day, actualDeviceId);
+      await bumpChatCount.run(day, ipCapKey);
 
       res.json({ response, remaining: remaining > 0 ? remaining - 1 : 0 });
     } catch (err) {
@@ -794,7 +794,7 @@ ${dbContext}`;
     next();
   };
 
-  app.post('/api/admin/login', adminLimiter, (req, res) => {
+  app.post('/api/admin/login', adminLimiter, async (req, res) => {
     if (!ADMIN_PASSWORD) return res.status(503).json({ error: 'Panel no configurado. Define la variable ADMIN_PASSWORD.' });
     const pass = typeof req.body?.password === 'string' ? req.body.password : '';
     const a = Buffer.from(pass), b = Buffer.from(ADMIN_PASSWORD);
@@ -803,22 +803,22 @@ ${dbContext}`;
     res.set('Cache-Control', 'no-store').json({ token: signAdminToken() });
   });
 
-  app.get('/api/admin/bootstrap', requireAdmin, (req, res) => {
+  app.get('/api/admin/bootstrap', requireAdmin, async (req, res) => {
     res.set('Cache-Control', 'no-store').json({
-      brands: db.prepare('SELECT id, name FROM brands ORDER BY name').all(),
-      injection_types: db.prepare('SELECT id, code, name FROM injection_types ORDER BY id').all(),
-      pumps: db.prepare('SELECT id, code, manufacturer FROM fuel_pumps ORDER BY manufacturer, code').all(),
+      brands: await db.all('SELECT id, name FROM brands ORDER BY name', ),
+      injection_types: await db.all('SELECT id, code, name FROM injection_types ORDER BY id', ),
+      pumps: await db.all('SELECT id, code, manufacturer FROM fuel_pumps ORDER BY manufacturer, code', ),
       enums: { body_types: BODY_TYPES, zones: ZONES, assembly: ASSEMBLY },
       counts: {
-        vehicles: db.prepare('SELECT COUNT(*) c FROM vehicles').get().c,
-        brands: db.prepare('SELECT COUNT(*) c FROM brands').get().c,
-        pumps: db.prepare('SELECT COUNT(*) c FROM fuel_pumps').get().c,
-        unverified: db.prepare('SELECT COUNT(*) c FROM vehicles WHERE data_verified = 0').get().c
+        vehicles: await db.get('SELECT COUNT(*) c FROM vehicles', ).c,
+        brands: await db.get('SELECT COUNT(*) c FROM brands', ).c,
+        pumps: await db.get('SELECT COUNT(*) c FROM fuel_pumps', ).c,
+        unverified: await db.get('SELECT COUNT(*) c FROM vehicles WHERE data_verified = 0', ).c
       }
     });
   });
 
-  app.get('/api/admin/vehicles', requireAdmin, (req, res) => {
+  app.get('/api/admin/vehicles', requireAdmin, async (req, res) => {
     const q = str(req.query.q, 60);
     const rows = db.prepare(`
       SELECT v.id, b.name AS brand, v.model, v.year_from, v.year_to, v.engine, v.data_verified
@@ -829,13 +829,13 @@ ${dbContext}`;
     res.set('Cache-Control', 'no-store').json(rows.map(r => ({ ...r, data_verified: !!r.data_verified })));
   });
 
-  app.get('/api/admin/vehicles/:id', requireAdmin, (req, res) => {
+  app.get('/api/admin/vehicles/:id', requireAdmin, async (req, res) => {
     const id = toInt(req.params.id, 1, 1e9);
-    const vehicle = db.prepare('SELECT * FROM vehicles WHERE id = ?').get(id);
+    const vehicle = await db.get('SELECT * FROM vehicles WHERE id = ?', id);
     if (!vehicle) return res.status(404).json({ error: 'No encontrado' });
-    const link = db.prepare('SELECT * FROM vehicle_modules WHERE vehicle_id = ?').get(id);
-    const module = link ? db.prepare('SELECT * FROM fuel_modules WHERE id = ?').get(link.module_id) : null;
-    const pumps = link ? db.prepare('SELECT pump_id, is_oem, fitment FROM module_pumps WHERE module_id = ?').all(link.module_id) : [];
+    const link = await db.get('SELECT * FROM vehicle_modules WHERE vehicle_id = ?', id);
+    const module = link ? await db.get('SELECT * FROM fuel_modules WHERE id = ?', link.module_id) : null;
+    const pumps = link ? await db.all('SELECT pump_id, is_oem, fitment FROM module_pumps WHERE module_id = ?', link.module_id) : [];
     res.set('Cache-Control', 'no-store').json({ vehicle, link, module, pumps });
   });
 
@@ -884,39 +884,38 @@ ${dbContext}`;
     };
   }
 
-  const insModule = () => db.prepare(`INSERT INTO fuel_modules
+  const insModule = async (d) => db.insertReturningId(`INSERT INTO fuel_modules
     (code,name,assembly_type,regulated_psi,flow_lph,regulator_type,float_type,strainer_ref,connector_desc,lines_desc,mount_desc,diagram_key)
-    VALUES (@code,@name,@assembly_type,@regulated_psi,@flow_lph,@regulator_type,@float_type,@strainer_ref,@connector_desc,@lines_desc,@mount_desc,@diagram_key)`);
+    VALUES (@code,@name,@assembly_type,@regulated_psi,@flow_lph,@regulator_type,@float_type,@strainer_ref,@connector_desc,@lines_desc,@mount_desc,@diagram_key)`, d);
 
-  const createVehicle = db.transaction((d) => {
-    const module_id = insModule().run(d.module).lastInsertRowid;
-    const vehicle_id = db.prepare(`INSERT INTO vehicles
+  const createVehicle = async (d) => { await db.exec('BEGIN'); try {
+    const module_id = await insModule(d.module);
+    const vehicle_id = await db.insertReturningId(`INSERT INTO vehicles
       (brand_id,model,year_from,year_to,engine,body_type,injection_type_id,rail_pressure_psi_min,rail_pressure_psi_max,notes,data_verified)
-      VALUES (@brand_id,@model,@year_from,@year_to,@engine,@body_type,@injection_type_id,@rail_pressure_psi_min,@rail_pressure_psi_max,@notes,@data_verified)`).run(d.vehicle).lastInsertRowid;
-    db.prepare(`INSERT INTO vehicle_modules (vehicle_id,module_id,location_text,location_zone,requires_tank_removal,access_notes)
-      VALUES (?,?,?,?,?,?)`).run(vehicle_id, module_id, d.link.location_text, d.link.location_zone, d.link.requires_tank_removal, d.link.access_notes);
-    const insPump = db.prepare('INSERT OR IGNORE INTO module_pumps (module_id,pump_id,is_oem,fitment) VALUES (?,?,?,?)');
-    for (const p of d.pumps) insPump.run(module_id, p.pump_id, p.is_oem, p.fitment);
-    return vehicle_id;
-  });
+      VALUES (@brand_id,@model,@year_from,@year_to,@engine,@body_type,@injection_type_id,@rail_pressure_psi_min,@rail_pressure_psi_max,@notes,@data_verified)`, d.vehicle);
+    await db.run(`INSERT INTO vehicle_modules (vehicle_id,module_id,location_text,location_zone,requires_tank_removal,access_notes)
+      VALUES (?,?,?,?,?,?)`, [vehicle_id, module_id, d.link.location_text, d.link.location_zone, d.link.requires_tank_removal, d.link.access_notes]);
+    const insPump = { run: async (m, p, i, f) => db.run('INSERT OR IGNORE INTO module_pumps (module_id,pump_id,is_oem,fitment) VALUES (?,?,?,?)', [m, p, i, f]) };
+    for (const p of d.pumps) await insPump.run(module_id, p.pump_id, p.is_oem, p.fitment);
+    await db.exec('COMMIT'); return vehicle_id; } catch(e) { await db.exec('ROLLBACK'); throw e; } };
 
-  const updateVehicle = db.transaction((id, d) => {
-    db.prepare(`UPDATE vehicles SET brand_id=@brand_id,model=@model,year_from=@year_from,year_to=@year_to,engine=@engine,body_type=@body_type,injection_type_id=@injection_type_id,rail_pressure_psi_min=@rail_pressure_psi_min,rail_pressure_psi_max=@rail_pressure_psi_max,notes=@notes,data_verified=@data_verified WHERE id=@id`).run({ ...d.vehicle, id });
-    let link = db.prepare('SELECT module_id FROM vehicle_modules WHERE vehicle_id = ?').get(id);
+  const updateVehicle = async (id, d) => { await db.exec('BEGIN'); try {
+    await db.run(`UPDATE vehicles SET brand_id=@brand_id,model=@model,year_from=@year_from,year_to=@year_to,engine=@engine,body_type=@body_type,injection_type_id=@injection_type_id,rail_pressure_psi_min=@rail_pressure_psi_min,rail_pressure_psi_max=@rail_pressure_psi_max,notes=@notes,data_verified=@data_verified WHERE id=@id`, { ...d.vehicle, id });
+    let link = await db.get('SELECT module_id FROM vehicle_modules WHERE vehicle_id = ?', [id]);
     let module_id = link?.module_id;
     if (module_id) {
-      db.prepare(`UPDATE fuel_modules SET code=@code,name=@name,assembly_type=@assembly_type,regulated_psi=@regulated_psi,flow_lph=@flow_lph,regulator_type=@regulator_type,float_type=@float_type,strainer_ref=@strainer_ref,connector_desc=@connector_desc,lines_desc=@lines_desc,mount_desc=@mount_desc,diagram_key=@diagram_key WHERE id=@id`).run({ ...d.module, id: module_id });
-      db.prepare('UPDATE vehicle_modules SET location_text=?,location_zone=?,requires_tank_removal=?,access_notes=? WHERE vehicle_id=?').run(d.link.location_text, d.link.location_zone, d.link.requires_tank_removal, d.link.access_notes, id);
+      await db.run(`UPDATE fuel_modules SET code=@code,name=@name,assembly_type=@assembly_type,regulated_psi=@regulated_psi,flow_lph=@flow_lph,regulator_type=@regulator_type,float_type=@float_type,strainer_ref=@strainer_ref,connector_desc=@connector_desc,lines_desc=@lines_desc,mount_desc=@mount_desc,diagram_key=@diagram_key WHERE id=@id`, { ...d.module, id: module_id });
+      await db.run('UPDATE vehicle_modules SET location_text=?,location_zone=?,requires_tank_removal=?,access_notes=? WHERE vehicle_id=?', [d.link.location_text, d.link.location_zone, d.link.requires_tank_removal, d.link.access_notes, id]);
     } else {
-      module_id = insModule().run(d.module).lastInsertRowid;
-      db.prepare('INSERT INTO vehicle_modules (vehicle_id,module_id,location_text,location_zone,requires_tank_removal,access_notes) VALUES (?,?,?,?,?,?)').run(id, module_id, d.link.location_text, d.link.location_zone, d.link.requires_tank_removal, d.link.access_notes);
+      module_id = await insModule(d.module);
+      await db.run('INSERT INTO vehicle_modules (vehicle_id,module_id,location_text,location_zone,requires_tank_removal,access_notes) VALUES (?,?,?,?,?,?)', [id, module_id, d.link.location_text, d.link.location_zone, d.link.requires_tank_removal, d.link.access_notes]);
     }
-    db.prepare('DELETE FROM module_pumps WHERE module_id = ?').run(module_id);
-    const insPump = db.prepare('INSERT OR IGNORE INTO module_pumps (module_id,pump_id,is_oem,fitment) VALUES (?,?,?,?)');
-    for (const p of d.pumps) insPump.run(module_id, p.pump_id, p.is_oem, p.fitment);
-  });
+    await db.run('DELETE FROM module_pumps WHERE module_id = ?', [module_id]);
+    const insPump = { run: async (m, p, i, f) => db.run('INSERT OR IGNORE INTO module_pumps (module_id,pump_id,is_oem,fitment) VALUES (?,?,?,?)', [m, p, i, f]) };
+    for (const p of d.pumps) await insPump.run(module_id, p.pump_id, p.is_oem, p.fitment);
+    await db.exec('COMMIT'); } catch(e) { await db.exec('ROLLBACK'); throw e; } };
 
-  app.post('/api/admin/vehicles', requireAdmin, (req, res) => {
+  app.post('/api/admin/vehicles', requireAdmin, async (req, res) => {
     try {
       const d = buildPayload(req.body);
       const id = createVehicle(d);
@@ -925,9 +924,9 @@ ${dbContext}`;
     } catch (e) { res.status(400).json({ error: e.message || 'Datos inválidos (¿código de módulo duplicado?)' }); }
   });
 
-  app.put('/api/admin/vehicles/:id', requireAdmin, (req, res) => {
+  app.put('/api/admin/vehicles/:id', requireAdmin, async (req, res) => {
     const id = toInt(req.params.id, 1, 1e9);
-    if (!db.prepare('SELECT 1 FROM vehicles WHERE id = ?').get(id)) return res.status(404).json({ error: 'No encontrado' });
+    if (!await db.get('SELECT 1 FROM vehicles WHERE id = ?', id)) return res.status(404).json({ error: 'No encontrado' });
     try {
       const d = buildPayload(req.body);
       updateVehicle(id, d);
@@ -936,42 +935,42 @@ ${dbContext}`;
     } catch (e) { res.status(400).json({ error: e.message || 'Datos inválidos' }); }
   });
 
-  app.delete('/api/admin/vehicles/:id', requireAdmin, (req, res) => {
+  app.delete('/api/admin/vehicles/:id', requireAdmin, async (req, res) => {
     const id = toInt(req.params.id, 1, 1e9);
-    const link = db.prepare('SELECT module_id FROM vehicle_modules WHERE vehicle_id = ?').get(id);
-    const del = db.transaction(() => {
-      db.prepare('DELETE FROM vehicles WHERE id = ?').run(id); // vehicle_modules cae por ON DELETE CASCADE
+    const link = await db.get('SELECT module_id FROM vehicle_modules WHERE vehicle_id = ?', id);
+    await db.exec('BEGIN'); try {
+      await db.run('DELETE FROM vehicles WHERE id = ?', id); // vehicle_modules cae por ON DELETE CASCADE
       if (link?.module_id) {
-        const used = db.prepare('SELECT COUNT(*) c FROM vehicle_modules WHERE module_id = ?').get(link.module_id).c;
+        const used = (await db.get('SELECT COUNT(*) c FROM vehicle_modules WHERE module_id = ?', [link.module_id]))?.c;
         if (used === 0) {
-          db.prepare('DELETE FROM module_pumps WHERE module_id = ?').run(link.module_id);
-          db.prepare('DELETE FROM fuel_modules WHERE id = ?').run(link.module_id);
+          await db.run('DELETE FROM module_pumps WHERE module_id = ?', [link.module_id]);
+          await db.run('DELETE FROM fuel_modules WHERE id = ?', [link.module_id]);
         }
       }
-    });
-    del();
+      await db.exec('COMMIT'); } catch(e) { await db.exec('ROLLBACK'); throw e; }
+    
     metaCache = null;
     res.json({ ok: true });
   });
 
-  app.post('/api/admin/vehicles/:id/verify', requireAdmin, (req, res) => {
+  app.post('/api/admin/vehicles/:id/verify', requireAdmin, async (req, res) => {
     const id = toInt(req.params.id, 1, 1e9);
-    const info = db.prepare('UPDATE vehicles SET data_verified = ? WHERE id = ?').run(req.body?.data_verified ? 1 : 0, id);
+    const info = await db.run('UPDATE vehicles SET data_verified = ? WHERE id = ?', req.body?.data_verified ? 1 : 0, id);
     if (!info.changes) return res.status(404).json({ error: 'No encontrado' });
     res.json({ ok: true });
   });
 
-  app.post('/api/admin/brands', requireAdmin, (req, res) => {
+  app.post('/api/admin/brands', requireAdmin, async (req, res) => {
     const name = str(req.body?.name, 60);
     if (!name) return res.status(400).json({ error: 'Nombre requerido' });
-    const existing = db.prepare('SELECT id, name FROM brands WHERE name = ?').get(name);
+    const existing = await db.get('SELECT id, name FROM brands WHERE name = ?', name);
     if (existing) return res.json(existing);
-    const info = db.prepare('INSERT INTO brands (name) VALUES (?)').run(name);
+    const info = await db.run('INSERT INTO brands (name) VALUES (?)', name);
     metaCache = null;
     res.json({ id: info.lastInsertRowid, name });
   });
 
-  app.post('/api/admin/pumps', requireAdmin, (req, res) => {
+  app.post('/api/admin/pumps', requireAdmin, async (req, res) => {
     const b = req.body || {};
     const pump = {
       code: str(b.code, 60), manufacturer: str(b.manufacturer, 60), pump_style: str(b.pump_style, 40) || 'turbina',
@@ -989,8 +988,8 @@ ${dbContext}`;
     } catch (e) { res.status(400).json({ error: 'Código de pila duplicado o inválido' }); }
   });
 
-  app.get('/api/admin/missing', requireAdmin, (req, res) => {
-    const rows = statsDb.prepare('SELECT q, SUM(count) veces FROM missing_searches GROUP BY q ORDER BY veces DESC, q LIMIT 100').all();
+  app.get('/api/admin/missing', requireAdmin, async (req, res) => {
+    const rows = await statsDb.all('SELECT q, SUM(count) veces FROM missing_searches GROUP BY q ORDER BY veces DESC, q LIMIT 100', );
     res.set('Cache-Control', 'no-store').json(rows);
   });
 
@@ -1006,29 +1005,15 @@ ${dbContext}`;
 
 /* ---------- Arranque en producción / desarrollo ---------- */
 if (require.main === module) {
-  // Abrir db y statsDb correctamente
-  const db = new Database(path.join(__dirname, 'fueltech.db'), { readonly: false });
-  db.pragma('foreign_keys = ON');
-  db.pragma('journal_mode = WAL');
+  (async () => {
+    await statsDb.run(`DELETE FROM visit_days WHERE day < date('now', '-90 days')`);
+    
+    const app = await createApp();
+    const PORT = process.env.PORT || 3000;
+    const server = app.listen(PORT, () => console.log(`FuelTech Master corriendo en http://localhost:${PORT}`));
 
-  const statsDb = new Database(path.join(__dirname, 'stats.db'));
-  statsDb.pragma('journal_mode = WAL');
-  statsDb.pragma('wal_autocheckpoint = 200');
-  statsDb.exec(`
-    CREATE TABLE IF NOT EXISTS visit_days (
-      day          TEXT NOT NULL,
-      visitor_hash TEXT NOT NULL,
-      PRIMARY KEY (day, visitor_hash)
-    ) WITHOUT ROWID;
-    CREATE TABLE IF NOT EXISTS meta (key TEXT PRIMARY KEY, value TEXT NOT NULL) WITHOUT ROWID;
-  `);
-  statsDb.prepare(`DELETE FROM visit_days WHERE day < date('now', '-90 days')`).run();
-
-  const app = createApp(db, statsDb);
-  const PORT = process.env.PORT || 3000;
-  const server = app.listen(PORT, () => console.log(`FuelTech Master corriendo en http://localhost:${PORT}`));
-
-  process.on('SIGTERM', () => { server.close(() => { db.close(); statsDb.close(); process.exit(0); }); });
+    process.on('SIGTERM', () => { server.close(() => { process.exit(0); }); });
+  })();
 }
 
 module.exports = { createApp, toInt, psiToBar };

@@ -113,6 +113,119 @@ function PumpCard({ pump }) {
     </div>`;
 }
 
+/* ---------- Sección de Comentarios ---------- */
+function CommentsSection({ vehicleId }) {
+  const [comments, setComments] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(null);
+  const [authorName, setAuthorName] = useState('');
+  const [content, setContent] = useState('');
+  const [replyTo, setReplyTo] = useState(null);
+  const [submitting, setSubmitting] = useState(false);
+
+  useEffect(() => {
+    let alive = true;
+    setLoading(true);
+    api(`/api/vehicles/${vehicleId}/comments`)
+      .then(d => { if (alive) { setComments(d); setError(null); } })
+      .catch(e => { if (alive) setError(e); })
+      .finally(() => { if (alive) setLoading(false); });
+    setReplyTo(null);
+    setContent('');
+    return () => { alive = false; };
+  }, [vehicleId]);
+
+  const handleSubmit = async (e, parentId = null) => {
+    e.preventDefault();
+    if (!authorName.trim() || !content.trim() || submitting) return;
+    setSubmitting(true);
+    try {
+      const res = await fetch(`/api/vehicles/${vehicleId}/comments`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ author_name: authorName, content, parent_id: parentId })
+      });
+      if (!res.ok) throw new Error('Error al enviar el comentario');
+      const newComment = await res.json();
+      setComments(prev => [...prev, newComment]);
+      setContent('');
+      setReplyTo(null);
+    } catch (e) {
+      alert('No se pudo enviar el comentario. Intenta de nuevo.');
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  const tree = [];
+  const map = {};
+  comments.forEach(c => { map[c.id] = { ...c, children: [] }; });
+  comments.forEach(c => {
+    if (c.parent_id && map[c.parent_id]) {
+      map[c.parent_id].children.push(map[c.id]);
+    } else {
+      tree.push(map[c.id]);
+    }
+  });
+
+  const renderComment = (c, isReply = false) => html`
+    <div key=${c.id} class=${'comment-item ' + (isReply ? 'reply' : '')}>
+      <div class="comment-head">
+        <strong>${c.author_name}</strong>
+        <span class="muted">${new Date(c.created_at).toLocaleString()}</span>
+      </div>
+      <div class="comment-body">${c.content}</div>
+      <button type="button" class="link-btn mt-small" onClick=${() => { setReplyTo(c.id); setContent(''); }}>
+        <${Icon} name="MessageSquareReply" size=${13} /> Responder
+      </button>
+      
+      ${replyTo === c.id && html`
+        <form class="comment-form mt" onSubmit=${(e) => handleSubmit(e, c.id)}>
+          <input type="text" class="styled-input" placeholder="Tu Nombre" value=${authorName} onInput=${e => setAuthorName(e.target.value)} required />
+          <textarea class="styled-input" placeholder="Escribe tu respuesta..." rows="2" value=${content} onInput=${e => setContent(e.target.value)} required style=${{ resize: 'vertical', marginTop: '6px' }}></textarea>
+          <div style=${{ display: 'flex', gap: '8px', marginTop: '6px' }}>
+            <button type="submit" class="v3d-btn" style=${{ position: 'static' }} disabled=${submitting}>
+              ${submitting ? 'Enviando...' : 'Enviar Respuesta'}
+            </button>
+            <button type="button" class="link-btn muted" onClick=${() => setReplyTo(null)}>Cancelar</button>
+          </div>
+        </form>
+      `}
+      
+      ${c.children.length > 0 && html`
+        <div class="comment-replies">
+          ${c.children.map(child => renderComment(child, true))}
+        </div>
+      `}
+    </div>
+  `;
+
+  return html`
+    <div class="panel mt">
+      <h2>Comentarios y Dudas</h2>
+      ${loading ? html`<div class="empty">Cargando comentarios...</div>` : null}
+      ${error ? html`<div class="alert"><${Icon} name="AlertTriangle" size=${14} /> No se pudieron cargar los comentarios.</div>` : null}
+      
+      ${!loading && !error && html`
+        <div class="comments-list">
+          ${tree.length === 0 ? html`<div class="empty" style=${{ padding: '20px' }}>No hay comentarios aún. ¡Sé el primero!</div>` : tree.map(c => renderComment(c))}
+        </div>
+        
+        ${replyTo === null && html`
+          <form class="comment-form mt" onSubmit=${(e) => handleSubmit(e, null)} style=${{ borderTop: '1px solid var(--border)', paddingTop: '16px' }}>
+            <h3 style=${{ fontSize: '13px', marginBottom: '8px', color: 'var(--text)' }}>Deja un comentario</h3>
+            <input type="text" class="styled-input" placeholder="Tu Nombre" value=${authorName} onInput=${e => setAuthorName(e.target.value)} required />
+            <textarea class="styled-input" placeholder="Escribe tu duda o comentario..." rows="3" value=${content} onInput=${e => setContent(e.target.value)} required style=${{ resize: 'vertical', marginTop: '6px' }}></textarea>
+            <button type="submit" class="v3d-btn" style=${{ position: 'static', marginTop: '8px' }} disabled=${submitting}>
+              ${submitting ? 'Enviando...' : 'Comentar'}
+            </button>
+          </form>
+        `}
+      `}
+    </div>
+  `;
+}
+
 /* ---------- Detalle del vehículo (vista en vivo, siempre junto al buscador) ---------- */
 function VehicleDetail({ id }) {
   const [v, setV] = useState(null);
@@ -220,6 +333,8 @@ function VehicleDetail({ id }) {
             </div>
           </div>
         </div>`)}
+
+      <${CommentsSection} vehicleId=${v.id} />
     </div>`;
 }
 

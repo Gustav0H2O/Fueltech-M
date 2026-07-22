@@ -397,6 +397,51 @@ describe('FuelTech Master API', () => {
       assert.equal(headers.get('cache-control'), 'no-store');
     });
   });
+
+  /* ===================== Comentarios de Vehículos ===================== */
+  describe('GET y POST /api/vehicles/:id/comments', () => {
+    it('obtiene lista vacía inicialmente', async () => {
+      const { status, body } = await api(ctx.port, '/api/vehicles/1/comments');
+      assert.equal(status, 200);
+      assert.ok(Array.isArray(body));
+      assert.equal(body.length, 0);
+    });
+
+    it('rechaza comentario sin autor o contenido', async () => {
+      const { status, body } = await api(ctx.port, '/api/vehicles/1/comments', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ author_name: '', content: '' })
+      });
+      assert.equal(status, 400);
+      assert.ok(body.error);
+    });
+
+    it('crea un comentario principal y luego una respuesta', async () => {
+      const post1 = await api(ctx.port, '/api/vehicles/1/comments', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ author_name: 'Carlos M.', content: '¿Qué bomba alternativa recomiendan?' })
+      });
+      assert.equal(post1.status, 200);
+      assert.equal(post1.body.author_name, 'Carlos M.');
+      assert.equal(post1.body.parent_id, null);
+
+      const parentId = post1.body.id;
+
+      const post2 = await api(ctx.port, '/api/vehicles/1/comments', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ author_name: 'Admin Tech', content: 'La Walbro GSS342 funciona excelente.', parent_id: parentId })
+      });
+      assert.equal(post2.status, 200);
+      assert.equal(post2.body.parent_id, parentId);
+
+      const getRes = await api(ctx.port, '/api/vehicles/1/comments');
+      assert.equal(getRes.status, 200);
+      assert.equal(getRes.body.length, 2);
+    });
+  });
 });
 
 /* ===================== Tests de toInt ===================== */

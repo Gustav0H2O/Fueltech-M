@@ -131,7 +131,7 @@ function createApp(db, statsDb) {
 
   /* ---------- Contador de visitantes ---------- */
   const visitLimiter = rateLimit({ windowMs: 60_000, limit: 10, standardHeaders: true, legacyHeaders: false });
-  app.post('/api/visit', visitLimiter, (req, res) => {
+  app.post('/api/visit', visitLimiter, async (req, res) => {
     const day = new Date().toISOString().slice(0, 10);
     const hash = crypto.createHash('sha512')
       .update(`${visitSalt}|${day}|${req.ip}`)
@@ -214,7 +214,7 @@ function createApp(db, statsDb) {
     FROM vehicles v JOIN brands b ON b.id = v.brand_id
     JOIN injection_types it ON it.id = v.injection_type_id WHERE v.id = ?`);
 
-  app.get('/', (req, res) => {
+  app.get('/', async (req, res) => {
     res.set('Cache-Control', 'public, max-age=300');
     res.type('html').send(renderShell({
       title: HOME_TITLE, description: HOME_DESC, canonicalPath: '/', nonce: res.locals.cspNonce,
@@ -227,7 +227,7 @@ function createApp(db, statsDb) {
     }));
   });
 
-  app.get('/vehiculo/:slug', (req, res, next) => {
+  app.get('/vehiculo/:slug', async (req, res, next) => {
     const id = toInt(String(req.params.slug).split('-').pop(), 1, 1e9);
     if (id === null) return next();
     const v = vehicleForPage.get(id);
@@ -286,7 +286,7 @@ function createApp(db, statsDb) {
     }));
   });
 
-  app.get('/vehiculos', (req, res) => {
+  app.get('/vehiculos', async (req, res) => {
     const rows = db.prepare(`SELECT v.id, b.name AS brand, v.model, v.year_from, v.year_to, v.rail_pressure_psi_max
       FROM vehicles v JOIN brands b ON b.id = v.brand_id ORDER BY b.name, v.model, v.year_from`).all();
     const items = rows.map(v => `<li><a href="/vehiculo/${vehicleSlug(v)}" style="color:#E5E7EB;text-decoration:none">${esc(v.brand)} ${esc(v.model)} ${v.year_from}-${v.year_to} — ${v.rail_pressure_psi_max} PSI</a></li>`).join('');
@@ -384,7 +384,7 @@ function createApp(db, statsDb) {
       <p style="margin-top:10px;color:#979EA7">Más guías: ${GUIDES.map(x => `<a href="/guia/${x.slug}" style="color:#979EA7">${x.label}</a>`).join(' · ')}</p>
     </main>`;
 
-  app.get('/guias', (req, res) => {
+  app.get('/guias', async (req, res) => {
     const items = GUIDES.map(g => `<li><a href="/guia/${g.slug}" style="color:#E5E7EB;text-decoration:none">${g.h1}</a></li>`).join('');
     res.set('Cache-Control', 'public, max-age=3600');
     res.type('html').send(renderShell({
@@ -395,7 +395,7 @@ function createApp(db, statsDb) {
     }));
   });
 
-  app.get('/guia/:slug', (req, res, next) => {
+  app.get('/guia/:slug', async (req, res, next) => {
     const g = GUIDES.find(x => x.slug === req.params.slug);
     if (!g) return next();
     res.set('Cache-Control', 'public, max-age=3600');
@@ -406,7 +406,7 @@ function createApp(db, statsDb) {
     }));
   });
 
-  app.get('/sitemap.xml', (req, res) => {
+  app.get('/sitemap.xml', async (req, res) => {
     const rows = db.prepare(`SELECT v.id, b.name AS brand, v.model, v.year_from, v.year_to
       FROM vehicles v JOIN brands b ON b.id = v.brand_id`).all();
     const locs = [`${BASE_URL}/`, `${BASE_URL}/vehiculos`, `${BASE_URL}/guias`,
@@ -417,7 +417,7 @@ function createApp(db, statsDb) {
       locs.map(u => `  <url><loc>${esc(u)}</loc></url>`).join('\n') + `\n</urlset>\n`);
   });
 
-  app.get('/robots.txt', (req, res) => {
+  app.get('/robots.txt', async (req, res) => {
     res.type('text/plain').set('Cache-Control', 'public, max-age=3600').send(
       `User-agent: *\nAllow: /\nDisallow: /api/\nDisallow: /admin\n\nSitemap: ${BASE_URL}/sitemap.xml\n`);
   });
@@ -434,7 +434,7 @@ function createApp(db, statsDb) {
 
   // --- Catálogos para filtros ---
   let metaCache = null;
-  app.get('/api/meta', catalogLimiter, (req, res) => {
+  app.get('/api/meta', catalogLimiter, async (req, res) => {
     if (!metaCache) {
       metaCache = {
         brands: db.prepare(`SELECT id, name FROM brands ORDER BY name`).all(),
@@ -449,7 +449,7 @@ function createApp(db, statsDb) {
 
   // --- Buscador ---
   const MAX_PAGE_SIZE = 200;
-  app.get('/api/vehicles', (req, res) => {
+  app.get('/api/vehicles', async (req, res) => {
     const { brand_id, model, year, injection_type_id } = req.query;
     const where = [];
     const params = {};
@@ -502,7 +502,7 @@ function createApp(db, statsDb) {
   });
 
   // --- Ficha completa anidada ---
-  app.get('/api/vehicles/:id', (req, res) => {
+  app.get('/api/vehicles/:id', async (req, res) => {
     const id = toInt(req.params.id, 1, 1e9);
     if (id === null) return res.status(404).json({ error: 'Vehículo no encontrado' });
     const v = db.prepare(`
@@ -572,53 +572,8 @@ function createApp(db, statsDb) {
     });
   });
 
-  // --- Comentarios de vehículos ---
-  app.get('/api/vehicles/:id/comments', (req, res) => {
-    const vehicle_id = toInt(req.params.id, 1, 1e9);
-    if (vehicle_id === null) return res.status(404).json({ error: 'Vehículo no válido' });
-    const rows = db.prepare(`
-      SELECT id, parent_id, author_name, content, created_at
-      FROM vehicle_comments
-      WHERE vehicle_id = ?
-      ORDER BY created_at ASC
-    `).all(vehicle_id);
-    res.json(rows);
-  });
-
-  app.post('/api/vehicles/:id/comments', (req, res) => {
-    const vehicle_id = toInt(req.params.id, 1, 1e9);
-    if (vehicle_id === null) return res.status(404).json({ error: 'Vehículo no válido' });
-    const { author_name, content, parent_id } = req.body;
-    
-    if (!author_name || !content || typeof author_name !== 'string' || typeof content !== 'string') {
-      return res.status(400).json({ error: 'Nombre y mensaje son requeridos' });
-    }
-    const name = author_name.trim().slice(0, 50);
-    const msg = content.trim().slice(0, 1000);
-    if (!name || !msg) return res.status(400).json({ error: 'Nombre y mensaje son requeridos' });
-
-    let pId = toInt(parent_id, 1, 1e9);
-    if (pId !== null) {
-      const parent = db.prepare('SELECT id FROM vehicle_comments WHERE id = ? AND vehicle_id = ?').get(pId, vehicle_id);
-      if (!parent) pId = null;
-    }
-
-    try {
-      const info = db.prepare(`
-        INSERT INTO vehicle_comments (vehicle_id, parent_id, author_name, content)
-        VALUES (?, ?, ?, ?)
-      `).run(vehicle_id, pId, name, msg);
-      
-      const newComment = db.prepare(`SELECT id, parent_id, author_name, content, created_at FROM vehicle_comments WHERE id = ?`).get(info.lastInsertRowid);
-      res.json(newComment);
-    } catch (e) {
-      console.error(e);
-      res.status(500).json({ error: 'Error al guardar comentario' });
-    }
-  });
-
   // --- Catálogo de módulos ---
-  app.get('/api/modules', catalogLimiter, (req, res) => {
+  app.get('/api/modules', catalogLimiter, async (req, res) => {
     const limit = toInt(req.query.limit, 1, MAX_PAGE_SIZE) ?? MAX_PAGE_SIZE;
     const offset = toInt(req.query.offset, 0, 10000) ?? 0;
     const rows = db.prepare(`
@@ -634,7 +589,7 @@ function createApp(db, statsDb) {
     res.json(rows.map(r => ({ ...r, regulated_bar: psiToBar(r.regulated_psi) })));
   });
 
-  app.get('/api/modules/:id', (req, res) => {
+  app.get('/api/modules/:id', async (req, res) => {
     const m = db.prepare(`SELECT * FROM fuel_modules WHERE id = ?`).get(toInt(req.params.id, 1, 1e9));
     if (!m) return res.status(404).json({ error: 'Módulo no encontrado' });
     res.json({ ...m, regulated_bar: psiToBar(m.regulated_psi) });
@@ -642,7 +597,7 @@ function createApp(db, statsDb) {
 
   // --- Catálogo de pilas ---
   let pumpsCache = null;
-  app.get('/api/pumps', catalogLimiter, (req, res) => {
+  app.get('/api/pumps', catalogLimiter, async (req, res) => {
     if (!pumpsCache) {
       pumpsCache = db.prepare(`SELECT * FROM fuel_pumps ORDER BY manufacturer, code`).all()
         .map(p => ({ ...p, max_bar_direct: psiToBar(p.max_psi_direct) }));
@@ -651,7 +606,7 @@ function createApp(db, statsDb) {
     res.json(pumpsCache);
   });
 
-  app.get('/api/pumps/:id', (req, res) => {
+  app.get('/api/pumps/:id', async (req, res) => {
     const p = db.prepare(`SELECT * FROM fuel_pumps WHERE id = ?`).get(toInt(req.params.id, 1, 1e9));
     if (!p) return res.status(404).json({ error: 'Pila no encontrada' });
     res.json({ ...p, max_bar_direct: psiToBar(p.max_psi_direct) });
@@ -794,7 +749,7 @@ ${dbContext}`;
     next();
   };
 
-  app.post('/api/admin/login', adminLimiter, (req, res) => {
+  app.post('/api/admin/login', adminLimiter, async (req, res) => {
     if (!ADMIN_PASSWORD) return res.status(503).json({ error: 'Panel no configurado. Define la variable ADMIN_PASSWORD.' });
     const pass = typeof req.body?.password === 'string' ? req.body.password : '';
     const a = Buffer.from(pass), b = Buffer.from(ADMIN_PASSWORD);
@@ -803,7 +758,7 @@ ${dbContext}`;
     res.set('Cache-Control', 'no-store').json({ token: signAdminToken() });
   });
 
-  app.get('/api/admin/bootstrap', requireAdmin, (req, res) => {
+  app.get('/api/admin/bootstrap', requireAdmin, async (req, res) => {
     res.set('Cache-Control', 'no-store').json({
       brands: db.prepare('SELECT id, name FROM brands ORDER BY name').all(),
       injection_types: db.prepare('SELECT id, code, name FROM injection_types ORDER BY id').all(),
@@ -818,7 +773,7 @@ ${dbContext}`;
     });
   });
 
-  app.get('/api/admin/vehicles', requireAdmin, (req, res) => {
+  app.get('/api/admin/vehicles', requireAdmin, async (req, res) => {
     const q = str(req.query.q, 60);
     const rows = db.prepare(`
       SELECT v.id, b.name AS brand, v.model, v.year_from, v.year_to, v.engine, v.data_verified
@@ -829,7 +784,7 @@ ${dbContext}`;
     res.set('Cache-Control', 'no-store').json(rows.map(r => ({ ...r, data_verified: !!r.data_verified })));
   });
 
-  app.get('/api/admin/vehicles/:id', requireAdmin, (req, res) => {
+  app.get('/api/admin/vehicles/:id', requireAdmin, async (req, res) => {
     const id = toInt(req.params.id, 1, 1e9);
     const vehicle = db.prepare('SELECT * FROM vehicles WHERE id = ?').get(id);
     if (!vehicle) return res.status(404).json({ error: 'No encontrado' });
@@ -916,7 +871,7 @@ ${dbContext}`;
     for (const p of d.pumps) insPump.run(module_id, p.pump_id, p.is_oem, p.fitment);
   });
 
-  app.post('/api/admin/vehicles', requireAdmin, (req, res) => {
+  app.post('/api/admin/vehicles', requireAdmin, async (req, res) => {
     try {
       const d = buildPayload(req.body);
       const id = createVehicle(d);
@@ -925,7 +880,7 @@ ${dbContext}`;
     } catch (e) { res.status(400).json({ error: e.message || 'Datos inválidos (¿código de módulo duplicado?)' }); }
   });
 
-  app.put('/api/admin/vehicles/:id', requireAdmin, (req, res) => {
+  app.put('/api/admin/vehicles/:id', requireAdmin, async (req, res) => {
     const id = toInt(req.params.id, 1, 1e9);
     if (!db.prepare('SELECT 1 FROM vehicles WHERE id = ?').get(id)) return res.status(404).json({ error: 'No encontrado' });
     try {
@@ -936,7 +891,7 @@ ${dbContext}`;
     } catch (e) { res.status(400).json({ error: e.message || 'Datos inválidos' }); }
   });
 
-  app.delete('/api/admin/vehicles/:id', requireAdmin, (req, res) => {
+  app.delete('/api/admin/vehicles/:id', requireAdmin, async (req, res) => {
     const id = toInt(req.params.id, 1, 1e9);
     const link = db.prepare('SELECT module_id FROM vehicle_modules WHERE vehicle_id = ?').get(id);
     const del = db.transaction(() => {
@@ -954,14 +909,14 @@ ${dbContext}`;
     res.json({ ok: true });
   });
 
-  app.post('/api/admin/vehicles/:id/verify', requireAdmin, (req, res) => {
+  app.post('/api/admin/vehicles/:id/verify', requireAdmin, async (req, res) => {
     const id = toInt(req.params.id, 1, 1e9);
     const info = db.prepare('UPDATE vehicles SET data_verified = ? WHERE id = ?').run(req.body?.data_verified ? 1 : 0, id);
     if (!info.changes) return res.status(404).json({ error: 'No encontrado' });
     res.json({ ok: true });
   });
 
-  app.post('/api/admin/brands', requireAdmin, (req, res) => {
+  app.post('/api/admin/brands', requireAdmin, async (req, res) => {
     const name = str(req.body?.name, 60);
     if (!name) return res.status(400).json({ error: 'Nombre requerido' });
     const existing = db.prepare('SELECT id, name FROM brands WHERE name = ?').get(name);
@@ -971,7 +926,7 @@ ${dbContext}`;
     res.json({ id: info.lastInsertRowid, name });
   });
 
-  app.post('/api/admin/pumps', requireAdmin, (req, res) => {
+  app.post('/api/admin/pumps', requireAdmin, async (req, res) => {
     const b = req.body || {};
     const pump = {
       code: str(b.code, 60), manufacturer: str(b.manufacturer, 60), pump_style: str(b.pump_style, 40) || 'turbina',
@@ -989,7 +944,7 @@ ${dbContext}`;
     } catch (e) { res.status(400).json({ error: 'Código de pila duplicado o inválido' }); }
   });
 
-  app.get('/api/admin/missing', requireAdmin, (req, res) => {
+  app.get('/api/admin/missing', requireAdmin, async (req, res) => {
     const rows = statsDb.prepare('SELECT q, SUM(count) veces FROM missing_searches GROUP BY q ORDER BY veces DESC, q LIMIT 100').all();
     res.set('Cache-Control', 'no-store').json(rows);
   });

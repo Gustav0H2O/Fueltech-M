@@ -97,3 +97,14 @@ CREATE INDEX IF NOT EXISTS idx_vehicles_brand ON vehicles(brand_id);
 CREATE INDEX IF NOT EXISTS idx_vehicles_inj   ON vehicles(injection_type_id);
 CREATE INDEX IF NOT EXISTS idx_vm_vehicle     ON vehicle_modules(vehicle_id);
 CREATE INDEX IF NOT EXISTS idx_mp_module      ON module_pumps(module_id);
+
+CREATE TABLE IF NOT EXISTS vehicle_comments (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  vehicle_id INTEGER NOT NULL REFERENCES vehicles(id) ON DELETE CASCADE,
+  parent_id INTEGER REFERENCES vehicle_comments(id) ON DELETE CASCADE,
+  author_name TEXT NOT NULL,
+  content TEXT NOT NULL,
+  created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE INDEX IF NOT EXISTS idx_vc_vehicle ON vehicle_comments(vehicle_id);
