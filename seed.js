@@ -1,29 +1,57 @@
-// FuelTech Master — Semilla de datos: catálogo amplio del mercado
-// PSI de referencia general (llave ON). Verificar siempre contra manual de servicio.
 const fs = require('fs');
 const path = require('path');
-const Database = require('better-sqlite3');
+const { db, statsDb, USE_PG } = require('./db');
 
-const DB_PATH = path.join(__dirname, 'fueltech.db');
-
-// Idempotencia: si ya hay datos y no se fuerza, NO reconstruir la base. Así los
-// vehículos que cargues por el panel de administración sobreviven a los redeploys
-// (cuando el hosting tiene disco persistente). Reconstruye a la fuerza con FORCE_SEED=1.
-if (!process.env.FORCE_SEED && fs.existsSync(DB_PATH)) {
-  try {
-    const check = new Database(DB_PATH, { readonly: true });
-    const n = check.prepare('SELECT COUNT(*) c FROM vehicles').get().c;
-    check.close();
-    if (n > 0) {
-      console.log(`seed: la base ya tiene ${n} vehículos — omitido (usa FORCE_SEED=1 para reconstruir).`);
-      process.exit(0);
+async function runSeed() {
+  if (!process.env.FORCE_SEED) {
+    try {
+      const row = await db.get('SELECT COUNT(*) c FROM vehicles');
+      const n = row ? Number(row.c) : 0;
+      if (n > 0) {
+        console.log(`seed: la base ya tiene ${n} vehículos — omitido (usa FORCE_SEED=1 para reconstruir).`);
+        process.exit(0);
+      }
+    } catch (e) {
+      /* base inexistente/corrupta o sin tablas: reconstruimos abajo */
     }
-  } catch (e) { /* base inexistente/corrupta o sin tablas: reconstruimos abajo */ }
-}
+  }
 
-if (fs.existsSync(DB_PATH)) fs.unlinkSync(DB_PATH);
-const db = new Database(DB_PATH);
-db.exec(fs.readFileSync(path.join(__dirname, 'schema.sql'), 'utf8'));
+  console.log(`🌱 Sembrando base de datos en modo: ${USE_PG ? 'PostgreSQL' : 'SQLite'}`);
+
+  if (process.env.FORCE_SEED) {
+    try {
+      if (USE_PG) {
+        await db.exec(`
+          DROP TABLE IF EXISTS module_pumps CASCADE;
+          DROP TABLE IF EXISTS vehicle_modules CASCADE;
+          DROP TABLE IF EXISTS fuel_pumps CASCADE;
+          DROP TABLE IF EXISTS fuel_modules CASCADE;
+          DROP TABLE IF EXISTS vehicle_comments CASCADE;
+          DROP TABLE IF EXISTS vehicles CASCADE;
+          DROP TABLE IF EXISTS brands CASCADE;
+          DROP TABLE IF EXISTS injection_types CASCADE;
+        `);
+      } else {
+        await db.exec(`
+          PRAGMA foreign_keys = OFF;
+          DROP TABLE IF EXISTS module_pumps;
+          DROP TABLE IF EXISTS vehicle_modules;
+          DROP TABLE IF EXISTS fuel_pumps;
+          DROP TABLE IF EXISTS fuel_modules;
+          DROP TABLE IF EXISTS vehicle_comments;
+          DROP TABLE IF EXISTS vehicles;
+          DROP TABLE IF EXISTS brands;
+          DROP TABLE IF EXISTS injection_types;
+          PRAGMA foreign_keys = ON;
+        `);
+      }
+    } catch (e) {
+      console.warn("Aviso al borrar tablas:", e.message);
+    }
+  }
+
+  const schemaFile = USE_PG ? 'schema-pg.sql' : 'schema.sql';
+  await db.exec(fs.readFileSync(path.join(__dirname, schemaFile), 'utf8'));
 
 /* ---------- Textos por zona de acceso ---------- */
 const ZONE_LOC = {
@@ -383,124 +411,131 @@ function moduleProfile({ brand, model, y1, y2, inj, ret, zone, isV8, disp, psiMa
 }
 
 /* ---------- Inserción ---------- */
-const tx = db.transaction(() => {
-  const injIds = {};
-  const injStmt = db.prepare(`INSERT INTO injection_types (code, name, description) VALUES (?, ?, ?)`);
-  injIds.MFI = injStmt.run('MFI', 'Full Injection (Multipunto)', 'Un inyector por cilindro sobre el riel/flauta. Presión media-alta regulada.').lastInsertRowid;
-  injIds.TBI = injStmt.run('TBI', 'TBI (Throttle Body Injection)', 'Inyección monopunto en el cuerpo de aceleración. Presión baja (9–13 PSI).').lastInsertRowid;
-  injIds.VORTEC_CSFI = injStmt.run('VORTEC_CSFI', 'Vortec (CSFI/SCPI)', 'Inyección central secuencial con poppets. Muy sensible a presión: bajo 60 PSI no abre los poppets.').lastInsertRowid;
-  injIds.GDI = injStmt.run('GDI', 'GDI (Inyección Directa)', 'Bomba de baja en tanque + bomba de alta mecánica en motor. La pila del tanque trabaja a 50–90 PSI.').lastInsertRowid;
+  await db.exec('BEGIN');
+  try {
+    const injIds = {};
+    const injSql = `INSERT INTO injection_types (code, name, description) VALUES (?, ?, ?)`;
+    injIds.MFI = await db.insertReturningId(injSql, ['MFI', 'Full Injection (Multipunto)', 'Un inyector por cilindro sobre el riel/flauta. Presión media-alta regulada.']);
+    injIds.TBI = await db.insertReturningId(injSql, ['TBI', 'TBI (Throttle Body Injection)', 'Inyección monopunto en el cuerpo de aceleración. Presión baja (9–13 PSI).']);
+    injIds.VORTEC_CSFI = await db.insertReturningId(injSql, ['VORTEC_CSFI', 'Vortec (CSFI/SCPI)', 'Inyección central secuencial con poppets. Muy sensible a presión: bajo 60 PSI no abre los poppets.']);
+    injIds.GDI = await db.insertReturningId(injSql, ['GDI', 'GDI (Inyección Directa)', 'Bomba de baja en tanque + bomba de alta mecánica en motor. La pila del tanque trabaja a 50–90 PSI.']);
 
-  const pumpIds = {};
-  const pumpStmt = db.prepare(`INSERT INTO fuel_pumps
-    (code, manufacturer, pump_style, max_psi_direct, amperage_a, voltage_v, flow_lph_free, inlet_desc, outlet_desc, polarity_desc, diagram_key)
-    VALUES (?, ?, ?, ?, ?, 12, ?, ?, ?, ?, ?)`);
-  for (const p of PUMPS) pumpIds[p[0]] = pumpStmt.run(...p).lastInsertRowid;
+    const pumpIds = {};
+    const pumpSql = `INSERT INTO fuel_pumps
+      (code, manufacturer, pump_style, max_psi_direct, amperage_a, voltage_v, flow_lph_free, inlet_desc, outlet_desc, polarity_desc, diagram_key)
+      VALUES (?, ?, ?, ?, ?, 12, ?, ?, ?, ?, ?)`;
+    for (const p of PUMPS) pumpIds[p[0]] = await db.insertReturningId(pumpSql, p);
 
-  const brandIds = {};
-  const brandStmt = db.prepare(`INSERT INTO brands (name) VALUES (?)`);
-  const vehStmt = db.prepare(`INSERT INTO vehicles
-    (brand_id, model, year_from, year_to, engine, body_type, injection_type_id, rail_pressure_psi_min, rail_pressure_psi_max, notes, data_verified)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`);
-  const modStmt = db.prepare(`INSERT INTO fuel_modules
-    (code, name, assembly_type, regulated_psi, flow_lph, regulator_type, float_type, strainer_ref, connector_desc, lines_desc, mount_desc, diagram_key)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`);
-  const vmStmt = db.prepare(`INSERT INTO vehicle_modules
-    (vehicle_id, module_id, location_text, location_zone, requires_tank_removal, access_notes)
-    VALUES (?, ?, ?, ?, ?, ?)`);
-  const mpStmt = db.prepare(`INSERT INTO module_pumps (module_id, pump_id, fitment, is_oem, notes) VALUES (?, ?, ?, ?, ?)`);
+    const brandIds = {};
+    const brandSql = `INSERT INTO brands (name) VALUES (?)`;
+    const vehSql = `INSERT INTO vehicles
+      (brand_id, model, year_from, year_to, engine, body_type, injection_type_id, rail_pressure_psi_min, rail_pressure_psi_max, notes, data_verified)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`;
+    const modSql = `INSERT INTO fuel_modules
+      (code, name, assembly_type, regulated_psi, flow_lph, regulator_type, float_type, strainer_ref, connector_desc, lines_desc, mount_desc, diagram_key)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`;
+    const vmSql = `INSERT INTO vehicle_modules
+      (vehicle_id, module_id, location_text, location_zone, requires_tank_removal, access_notes)
+      VALUES (?, ?, ?, ?, ?, ?)`;
+    const mpSql = `INSERT INTO module_pumps (module_id, pump_id, fitment, is_oem, notes) VALUES (?, ?, ?, ?, ?)`;
 
-  // Familia Toyota de motor pequeño (Yaris/Corolla/Avanza, 1NZ/2NZ/1ZZ/2ZR-FE): comparten módulo
-  // y corren presión de riel más baja que el resto de los MFI — confirmado en manual (38–44 PSI).
-  // Es la única excepción a la regla general de taller para full inyección.
-  const YARIS_FAMILY = new Set(['Yaris', 'Corolla', 'Corolla GR-S', 'Avanza']);
+    // Familia Toyota de motor pequeño (Yaris/Corolla/Avanza, 1NZ/2NZ/1ZZ/2ZR-FE): comparten módulo
+    // y corren presión de riel más baja que el resto de los MFI — confirmado en manual (38–44 PSI).
+    // Es la única excepción a la regla general de taller para full inyección.
+    const YARIS_FAMILY = new Set(['Yaris', 'Corolla', 'Corolla GR-S', 'Avanza']);
 
-  let seq = 0;
-  for (const [brand, model, y1, y2, engine, inj, psiMinRaw, psiMaxRaw, zone, ret, locOverride, note, verified] of V) {
-    seq++;
-    if (!brandIds[brand]) brandIds[brand] = brandStmt.run(brand).lastInsertRowid;
+    let seq = 0;
+    for (const [brand, model, y1, y2, engine, inj, psiMinRaw, psiMaxRaw, zone, ret, locOverride, note, verified] of V) {
+      seq++;
+      if (!brandIds[brand]) brandIds[brand] = await db.insertReturningId(brandSql, [brand]);
 
-    // Regla de taller — PSI en riel (llave ON / acelerado):
-    //  - MFI (full inyección): 50–60 PSI, salvo familia Yaris (38–44, spec real de manual)
-    //  - TBI / Vortec / GDI: se respeta el valor propio de cada sistema (no tocado)
-    let psiMin = psiMinRaw, psiMax = psiMaxRaw;
-    if (inj === 'MFI') {
-      if (brand === 'Toyota' && YARIS_FAMILY.has(model)) { psiMin = 38; psiMax = 44; }
-      else { psiMin = 50; psiMax = 60; }
+      // Regla de taller — PSI en riel (llave ON / acelerado):
+      //  - MFI (full inyección): 50–60 PSI, salvo familia Yaris (38–44, spec real de manual)
+      //  - TBI / Vortec / GDI: se respeta el valor propio de cada sistema (no tocado)
+      let psiMin = psiMinRaw, psiMax = psiMaxRaw;
+      if (inj === 'MFI') {
+        if (brand === 'Toyota' && YARIS_FAMILY.has(model)) { psiMin = 38; psiMax = 44; }
+        else { psiMin = 50; psiMax = 60; }
+      }
+
+      const isVerified = verified === undefined ? 1 : verified;
+      const fullNote = isVerified ? (note || null) : `⚠ ESTIMADO — verificar contra manual antes de reparar. ${note || ''}`.trim();
+      const vehId = await db.insertReturningId(vehSql, [brandIds[brand], model, y1, y2, engine, bodyType(model), injIds[inj], psiMin, psiMax, fullNote, isVerified]);
+
+      // Clase de presión de la pila según el sistema (banco de pruebas, pila sola sin regulador)
+      const cls = inj === 'GDI' ? 'GDI'
+        : inj === 'TBI' ? 'TBI'
+        : inj === 'VORTEC_CSFI' ? 'VORTEC'
+        : (brand === 'Toyota' && YARIS_FAMILY.has(model)) ? 'MFI_ECO'
+        : 'MFI_STD';
+
+      // Flujo estimado del módulo según motor
+      const disp = parseFloat((engine.match(/(\d+\.\d+)L/) || [])[1] || 2.0);
+      const isV8 = /V8/.test(engine);
+      const baseFlow = isV8 ? 150 : /V6|L6|L5/.test(engine) ? 130 : disp <= 1.6 ? 95 : 110;
+
+      const prof = moduleProfile({ brand, model, y1, y2, inj, ret, zone, isV8, disp, psiMax });
+
+      // Presión regulada del módulo (banco): MFI = 60 PSI, o 60–80 PSI si el motor es V8 (más de 6 cilindros).
+      // TBI/Vortec/GDI conservan su propio valor de riel (el módulo TBI no regula; Vortec y GDI no siguen esta regla).
+      const modulePsi = inj === 'MFI' ? (isV8 ? 75 : 60) : psiMax;
+
+      const brandCode = brand.slice(0, 3).toUpperCase();
+      const modId = await db.insertReturningId(modSql, [
+        `FTM-${brandCode}-${String(seq).padStart(3, '0')}`,
+        `${prof.namePrefix} ${brand} ${model} ${y1}–${y2}`,
+        prof.assembly,
+        modulePsi, prof.flow(baseFlow), prof.regulator,
+        prof.floatType,
+        prof.strainer,
+        prof.connector,
+        prof.lines,
+        prof.mount,
+        prof.diagram
+      ]);
+
+      await db.run(vmSql, [vehId, modId, locOverride || ZONE_LOC[zone], zone, zone === 'tank_drop' ? 1 : 0, ZONE_ACCESS[zone]]);
+
+      for (const [pumpCode, isOem, pnote] of CLASS_PUMPS[cls]) {
+        await db.run(mpSql, [modId, pumpIds[pumpCode], isOem ? 'directa' : 'con adaptación', isOem, pnote]);
+      }
     }
-
-    const isVerified = verified === undefined ? 1 : verified;
-    const fullNote = isVerified ? (note || null) : `⚠ ESTIMADO — verificar contra manual antes de reparar. ${note || ''}`.trim();
-    const vehId = vehStmt.run(brandIds[brand], model, y1, y2, engine, bodyType(model), injIds[inj], psiMin, psiMax, fullNote, isVerified).lastInsertRowid;
-
-    // Clase de presión de la pila según el sistema (banco de pruebas, pila sola sin regulador)
-    const cls = inj === 'GDI' ? 'GDI'
-      : inj === 'TBI' ? 'TBI'
-      : inj === 'VORTEC_CSFI' ? 'VORTEC'
-      : (brand === 'Toyota' && YARIS_FAMILY.has(model)) ? 'MFI_ECO'
-      : 'MFI_STD';
-
-    // Flujo estimado del módulo según motor
-    const disp = parseFloat((engine.match(/(\d+\.\d+)L/) || [])[1] || 2.0);
-    const isV8 = /V8/.test(engine);
-    const baseFlow = isV8 ? 150 : /V6|L6|L5/.test(engine) ? 130 : disp <= 1.6 ? 95 : 110;
-
-    const prof = moduleProfile({ brand, model, y1, y2, inj, ret, zone, isV8, disp, psiMax });
-
-    // Presión regulada del módulo (banco): MFI = 60 PSI, o 60–80 PSI si el motor es V8 (más de 6 cilindros).
-    // TBI/Vortec/GDI conservan su propio valor de riel (el módulo TBI no regula; Vortec y GDI no siguen esta regla).
-    const modulePsi = inj === 'MFI' ? (isV8 ? 75 : 60) : psiMax;
-
-    const brandCode = brand.slice(0, 3).toUpperCase();
-    const modId = modStmt.run(
-      `FTM-${brandCode}-${String(seq).padStart(3, '0')}`,
-      `${prof.namePrefix} ${brand} ${model} ${y1}–${y2}`,
-      prof.assembly,
-      modulePsi, prof.flow(baseFlow), prof.regulator,
-      prof.floatType,
-      prof.strainer,
-      prof.connector,
-      prof.lines,
-      prof.mount,
-      prof.diagram
-    ).lastInsertRowid;
-
-    vmStmt.run(vehId, modId, locOverride || ZONE_LOC[zone], zone, zone === 'tank_drop' ? 1 : 0, ZONE_ACCESS[zone]);
-
-    for (const [pumpCode, isOem, pnote] of CLASS_PUMPS[cls]) {
-      mpStmt.run(modId, pumpIds[pumpCode], isOem ? 'directa' : 'con adaptación', isOem, pnote);
-    }
+    await db.exec('COMMIT');
+  } catch (e) {
+    await db.exec('ROLLBACK');
+    console.error("Error sembrando datos:", e);
+    process.exit(1);
   }
-});
 
-tx();
-console.log('fueltech.db creada y sembrada:');
-for (const t of ['injection_types', 'brands', 'vehicles', 'fuel_modules', 'fuel_pumps', 'vehicle_modules', 'module_pumps']) {
-  console.log(`  ${t}: ${db.prepare(`SELECT COUNT(*) c FROM ${t}`).get().c} filas`);
+  console.log('Base de datos creada y sembrada con éxito:');
+  for (const t of ['injection_types', 'brands', 'vehicles', 'fuel_modules', 'fuel_pumps', 'vehicle_modules', 'module_pumps']) {
+    const r = await db.get(`SELECT COUNT(*) c FROM ${t}`);
+    console.log(`  ${t}: ${r ? r.c : 0} filas`);
+  }
+
+  // Inicializar statsDb para que las tablas de métricas existan al arrancar
+  await statsDb.exec(`
+    CREATE TABLE IF NOT EXISTS visit_days (
+      day          TEXT NOT NULL,
+      visitor_hash TEXT NOT NULL,
+      PRIMARY KEY (day, visitor_hash)
+    );
+    CREATE TABLE IF NOT EXISTS meta (key TEXT PRIMARY KEY, value TEXT NOT NULL);
+    CREATE TABLE IF NOT EXISTS chat_limits (
+      day TEXT NOT NULL,
+      device_id TEXT NOT NULL,
+      count INTEGER NOT NULL,
+      PRIMARY KEY (day, device_id)
+    );
+    CREATE TABLE IF NOT EXISTS missing_searches (
+      day TEXT NOT NULL,
+      q TEXT NOT NULL,
+      count INTEGER NOT NULL DEFAULT 0,
+      PRIMARY KEY (day, q)
+    );
+  `);
+  console.log('Tablas de stats inicializadas.');
+  process.exit(0);
 }
-db.close();
 
-// Inicializar stats.db para que las tablas de métricas existan al arrancar
-const statsDbFile = new Database(path.join(__dirname, 'stats.db'));
-statsDbFile.pragma('journal_mode = WAL');
-statsDbFile.exec(`
-  CREATE TABLE IF NOT EXISTS visit_days (
-    day          TEXT NOT NULL,
-    visitor_hash TEXT NOT NULL,
-    PRIMARY KEY (day, visitor_hash)
-  );
-  CREATE TABLE IF NOT EXISTS meta (key TEXT PRIMARY KEY, value TEXT NOT NULL);
-  CREATE TABLE IF NOT EXISTS chat_limits (
-    day TEXT NOT NULL,
-    device_id TEXT NOT NULL,
-    count INTEGER NOT NULL,
-    PRIMARY KEY (day, device_id)
-  );
-  CREATE TABLE IF NOT EXISTS missing_searches (
-    day TEXT NOT NULL,
-    q TEXT NOT NULL,
-    count INTEGER NOT NULL DEFAULT 0,
-    PRIMARY KEY (day, q)
-  );
-`);
-statsDbFile.close();
+runSeed();

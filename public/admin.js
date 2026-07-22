@@ -57,7 +57,7 @@ function fillSelects() {
 }
 function renderCounts() {
   const c = boot.counts;
-  $('counts').innerHTML = `<span><b>${c.vehicles}</b> vehículos</span> <span><b>${c.brands}</b> marcas</span> <span><b>${c.pumps}</b> pilas</span> <span><b>${c.unverified}</b> sin verificar</span>`;
+  $('counts').innerHTML = `<span><strong>${c.vehicles}</strong> vehículos</span> <span><strong>${c.brands}</strong> marcas</span> <span><strong>${c.pumps}</strong> pilas</span> <span><strong>${c.unverified}</strong> sin verificar</span>`;
 }
 function renderPumpChecklist(selected) {
   const box = $('p_list'); box.innerHTML = '';

@@ -622,7 +622,7 @@ function Calculators() {
                 ${reqLph > 0 ? html`
                   <div class="alert blue" style=${{ marginTop: '20px', alignItems: 'center' }}>
                     <${Icon} name="CheckCircle2" size=${18} color="var(--amber)" /> 
-                    <span>La bomba debe entregar mínimo <b style=${{ color: 'var(--text)', fontSize: '15px' }}>${reqLph} LPH</b> reales a la presión de trabajo.</span>
+                    <span>La bomba debe entregar mínimo <b style=${{ color: 'var(--text)', fontSize: '15px' }}>${reqLph} LPH</strong> reales a la presión de trabajo.</span>
                   </div>` : ''}
               </div>
 
@@ -888,7 +888,7 @@ function App() {
           <div class="footer-copy">© 2025–2026 FuelTech Master. Todos los derechos reservados.</div>
           <div class="dev-contact">
             <${Icon} name="Mail" size=${13} />
-            <a href="#" onClick=${handleEmailClick} title="Enviar correo a newpersonal98@gmail.com">¿Quieres un desarrollo similar? Contáctame: <b>newpersonal98@gmail.com</b></a>
+            <a href="#" onClick=${handleEmailClick} title="Enviar correo a newpersonal98@gmail.com">¿Quieres un desarrollo similar? Contáctame: <strong>newpersonal98@gmail.com</strong></a>
           </div>
         </div>
       </aside>
@@ -900,7 +900,7 @@ function App() {
             <h2>${showGarage ? 'Mi Garage' : 'Vehículos encontrados'} <button type="button" class="link-btn" style=${{ marginLeft: '10px', fontSize: '11px', letterSpacing: '.5px' }} onClick=${() => setShowGarage(s => !s)}>${showGarage ? '← búsqueda' : `★ Garage (${garage.length})`}</button></h2>
             <div class="result-count" aria-live="polite">
               ${isSearching ? html`<span style=${{color: 'var(--red)', marginRight: '6px'}}><${Icon} name="Loader2" size=${12} spin=${true} /></span>` : ''}
-              ${results ? html`<b>${results.length}</b> resultado(s)` : 'Cargando vehículos…'}
+              ${results ? html`<strong>${results.length}</strong> resultado(s)` : 'Cargando vehículos…'}
               ${results?.some(r => !r.data_verified) &&
                 html`<span class="legend-est" title="Dato estimado por clase de sistema, aún sin confirmar contra el manual de servicio del vehículo">${' · '}<em class="r-est">EST.</em> = sin verificar</span>`}
               ${(filters.brand_id || filters.model || filters.year || filters.injection_type_id) &&

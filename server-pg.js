@@ -74,7 +74,12 @@ async function createApp() {
     next();
   });
 
-  const dbDump = await db.all(`SELECT b.name as brand, v.model, v.year_from, v.year_to, v.engine, v.rail_pressure_psi_min, v.rail_pressure_psi_max FROM vehicles v JOIN brands b on v.brand_id=b.id`, );
+  let dbDump = [];
+  try {
+    dbDump = await db.all(`SELECT b.name as brand, v.model, v.year_from, v.year_to, v.engine, v.rail_pressure_psi_min, v.rail_pressure_psi_max FROM vehicles v JOIN brands b on v.brand_id=b.id`, );
+  } catch (err) {
+    console.error('❌ Error al obtener dbDump inicial (¿Base de datos vacía o sin inicializar?):', err.message);
+  }
   const globalDBContext = 'Base de Datos (Vehículos soportados): ' + dbDump.map(r => `${r.brand} ${r.model} ${r.year_from}-${r.year_to} ${r.engine} PSI:${r.rail_pressure_psi_min}-${r.rail_pressure_psi_max}`).join('; ');
   // trust proxy ajustable para tests
   app.set('trust proxy', process.env.TRUST_PROXY !== '0' ? 1 : 0);
@@ -204,7 +209,7 @@ async function createApp() {
   // Registro de búsquedas SIN resultado → hoja de ruta de datos guiada por demanda real.
   statsDb.exec(`CREATE TABLE IF NOT EXISTS missing_searches (
     day TEXT NOT NULL, q TEXT NOT NULL, count INTEGER NOT NULL DEFAULT 0,
-    PRIMARY KEY (day, q)) WITHOUT ROWID`);
+    PRIMARY KEY (day, q))`);
   const bumpMissing = { run: async (p1, p2) => statsDb.run(`INSERT INTO missing_searches (day, q, count) VALUES (?, ?, 1)
     ON CONFLICT(day, q) DO UPDATE SET count = count + 1`, [p1, p2]) };
 
@@ -316,13 +321,13 @@ async function createApp() {
       html: `<p style="color:#B7BFC9">Una bomba (pila) de gasolina desgastada rara vez muere de golpe: primero da avisos. Reconocerlos a tiempo evita dejar tirado al cliente y apunta el diagnóstico hacia la presión de combustible.</p>
         <h2 style="font-size:17px;color:#E53935;margin-top:22px">Los 7 síntomas más comunes</h2>
         <ol style="padding-left:20px">
-          <li><b>Arranque difícil en caliente.</b> Con el motor caliente tarda en encender: la bomba ya no sostiene presión residual.</li>
-          <li><b>Jaloneo y pérdida de potencia en subidas o al acelerar a fondo.</b> El motor pide más flujo del que la bomba puede dar.</li>
-          <li><b>Tirones a velocidad de crucero constante.</b> La presión cae de forma intermitente.</li>
-          <li><b>Zumbido o ruido agudo desde el tanque.</b> Una bomba forzada (o con cedazo tapado) trabaja más ruidosa.</li>
-          <li><b>El motor no arranca.</b> Sin presión de combustible no hay pulverización en los inyectores.</li>
-          <li><b>Apagones intermitentes</b> en ralentí o en marcha, con reencendido posterior.</li>
-          <li><b>Mayor consumo o marcha irregular</b> por presión fuera de especificación.</li>
+          <li><strong>Arranque difícil en caliente.</strong> Con el motor caliente tarda en encender: la bomba ya no sostiene presión residual.</li>
+          <li><strong>Jaloneo y pérdida de potencia en subidas o al acelerar a fondo.</strong> El motor pide más flujo del que la bomba puede dar.</li>
+          <li><strong>Tirones a velocidad de crucero constante.</strong> La presión cae de forma intermitente.</li>
+          <li><strong>Zumbido o ruido agudo desde el tanque.</strong> Una bomba forzada (o con cedazo tapado) trabaja más ruidosa.</li>
+          <li><strong>El motor no arranca.</strong> Sin presión de combustible no hay pulverización en los inyectores.</li>
+          <li><strong>Apagones intermitentes</strong> en ralentí o en marcha, con reencendido posterior.</li>
+          <li><strong>Mayor consumo o marcha irregular</strong> por presión fuera de especificación.</li>
         </ol>
         <h2 style="font-size:17px;color:#E53935;margin-top:22px">Cómo confirmarlo (no adivines)</h2>
         <p style="color:#B7BFC9">Todos estos síntomas también los provoca un filtro tapado, un regulador defectuoso o una caída de voltaje en el circuito. La única forma de confirmar es <a href="/guia/como-medir-la-presion-de-combustible" style="color:#E53935">medir la presión de combustible</a> y compararla con la <a href="/vehiculos" style="color:#E53935">especificación de tu vehículo</a>. Consulta siempre el manual de servicio antes de reemplazar.</p>`,
@@ -337,14 +342,14 @@ async function createApp() {
       title: 'Cómo medir la presión de combustible paso a paso (con manómetro) | FuelTech Master',
       description: 'Guía práctica para medir la presión de riel/combustible con manómetro: alivio de presión, conexión, lectura con llave ON, en ralentí y prueba de retención. Valores esperados por vehículo.',
       h1: 'Cómo medir la presión de combustible (paso a paso)',
-      html: `<p style="color:#B7BFC9">Medir la presión es lo que separa el diagnóstico de la adivinanza. Necesitas un <b>manómetro de combustible</b> con los adaptadores adecuados y tomar precauciones: la gasolina está a presión.</p>
+      html: `<p style="color:#B7BFC9">Medir la presión es lo que separa el diagnóstico de la adivinanza. Necesitas un <strong>manómetro de combustible</strong> con los adaptadores adecuados y tomar precauciones: la gasolina está a presión.</p>
         <h2 style="font-size:17px;color:#E53935;margin-top:22px">Paso a paso</h2>
         <ol style="padding-left:20px">
-          <li><b>Alivia la presión</b> del sistema antes de abrir nada (fusible de la bomba y arrancar hasta que se apague, o válvula Schrader si existe).</li>
-          <li><b>Conecta el manómetro</b> en el puerto de prueba (Schrader) del riel, o en línea con adaptador en T si no hay puerto.</li>
-          <li><b>Llave en ON (sin arrancar):</b> la bomba presuriza 2–3 segundos. Anota la lectura pico.</li>
-          <li><b>Arranca y lee en ralentí:</b> compara con la especificación. En sistemas con retorno, al desconectar el vacío del regulador la presión debe subir.</li>
-          <li><b>Prueba de retención:</b> apaga y observa cuánto tarda en caer. Una caída rápida indica bomba, check, regulador o inyector con fuga.</li>
+          <li><strong>Alivia la presión</strong> del sistema antes de abrir nada (fusible de la bomba y arrancar hasta que se apague, o válvula Schrader si existe).</li>
+          <li><strong>Conecta el manómetro</strong> en el puerto de prueba (Schrader) del riel, o en línea con adaptador en T si no hay puerto.</li>
+          <li><strong>Llave en ON (sin arrancar):</strong> la bomba presuriza 2–3 segundos. Anota la lectura pico.</li>
+          <li><strong>Arranca y lee en ralentí:</strong> compara con la especificación. En sistemas con retorno, al desconectar el vacío del regulador la presión debe subir.</li>
+          <li><strong>Prueba de retención:</strong> apaga y observa cuánto tarda en caer. Una caída rápida indica bomba, check, regulador o inyector con fuga.</li>
         </ol>
         <h2 style="font-size:17px;color:#E53935;margin-top:22px">¿Qué presión debe tener?</h2>
         <p style="color:#B7BFC9">Depende del vehículo y del tipo de inyección (TBI, MFI, Vortec, GDI). Busca el valor exacto de tu auto en el <a href="/vehiculos" style="color:#E53935">catálogo</a>. Si estás por debajo del rango, revisa <a href="/guia/presion-de-combustible-baja" style="color:#E53935">las causas de presión baja</a>.</p>`,
@@ -362,11 +367,11 @@ async function createApp() {
       html: `<p style="color:#B7BFC9">Mediste y estás por debajo del rango. Antes de condenar la bomba, descarta en orden estas causas — varias son más baratas y comunes.</p>
         <h2 style="font-size:17px;color:#E53935;margin-top:22px">Causas más frecuentes</h2>
         <ul style="padding-left:20px">
-          <li><b>Cedazo o filtro de combustible tapado.</b> Restringe el flujo; es lo primero y más barato a revisar.</li>
-          <li><b>Bomba (pila) desgastada.</b> Ya no alcanza la presión ni el flujo; se confirma con prueba de flujo y presión muerta (deadhead).</li>
-          <li><b>Regulador de presión defectuoso.</b> Fuga o no mantiene el valor; en sistemas con retorno se prueba con el vacío.</li>
-          <li><b>Caída de voltaje en el circuito de la bomba.</b> Un cable/relé/conector con resistencia hace que la bomba gire lento y dé menos presión. Mide voltaje en el conector con la bomba trabajando.</li>
-          <li><b>Líneas obstruidas o aplastadas / fuga.</b> Restricción o pérdida en el camino al riel.</li>
+          <li><strong>Cedazo o filtro de combustible tapado.</strong> Restringe el flujo; es lo primero y más barato a revisar.</li>
+          <li><strong>Bomba (pila) desgastada.</strong> Ya no alcanza la presión ni el flujo; se confirma con prueba de flujo y presión muerta (deadhead).</li>
+          <li><strong>Regulador de presión defectuoso.</strong> Fuga o no mantiene el valor; en sistemas con retorno se prueba con el vacío.</li>
+          <li><strong>Caída de voltaje en el circuito de la bomba.</strong> Un cable/relé/conector con resistencia hace que la bomba gire lento y dé menos presión. Mide voltaje en el conector con la bomba trabajando.</li>
+          <li><strong>Líneas obstruidas o aplastadas / fuga.</strong> Restricción o pérdida en el camino al riel.</li>
         </ul>
         <h2 style="font-size:17px;color:#E53935;margin-top:22px">El orden correcto</h2>
         <p style="color:#B7BFC9">Mide voltaje en la bomba antes de cambiarla: muchas bombas "malas" en realidad reciben voltaje bajo. Luego descarta cedazo/filtro y regulador. Compara siempre contra la <a href="/vehiculos" style="color:#E53935">especificación de tu vehículo</a> y consulta el manual de servicio.</p>`,
@@ -667,7 +672,7 @@ async function createApp() {
       device_id  TEXT NOT NULL,
       count      INTEGER NOT NULL DEFAULT 0,
       PRIMARY KEY (day, device_id)
-    ) WITHOUT ROWID
+    )
   `);
   const getChatCount = { get: async (day, device_id) => statsDb.get(`SELECT count FROM chat_limits WHERE day = ? AND device_id = ?`, [day, device_id]) };
   const bumpChatCount = { run: async (day, device_id) => statsDb.run(`
@@ -1006,33 +1011,38 @@ ${dbContext}`;
 /* ---------- Arranque en producción / desarrollo ---------- */
 if (require.main === module) {
   (async () => {
-    await statsDb.exec(`
-      CREATE TABLE IF NOT EXISTS visit_days (
-        day          TEXT NOT NULL,
-        visitor_hash TEXT NOT NULL,
-        PRIMARY KEY (day, visitor_hash)
-      );
-      CREATE TABLE IF NOT EXISTS meta (key TEXT PRIMARY KEY, value TEXT NOT NULL);
-      CREATE TABLE IF NOT EXISTS chat_limits (
-        day TEXT NOT NULL,
-        device_id TEXT NOT NULL,
-        count INTEGER NOT NULL,
-        PRIMARY KEY (day, device_id)
-      );
-      CREATE TABLE IF NOT EXISTS missing_searches (
-        day TEXT NOT NULL,
-        q TEXT NOT NULL,
-        count INTEGER NOT NULL DEFAULT 0,
-        PRIMARY KEY (day, q)
-      );
-    `);
-    await statsDb.run(`DELETE FROM visit_days WHERE day < date('now', '-90 days')`);
-    
-    const app = await createApp();
-    const PORT = process.env.PORT || 3000;
-    const server = app.listen(PORT, () => console.log(`FuelTech Master corriendo en http://localhost:${PORT}`));
+    try {
+      await statsDb.exec(`
+        CREATE TABLE IF NOT EXISTS visit_days (
+          day          TEXT NOT NULL,
+          visitor_hash TEXT NOT NULL,
+          PRIMARY KEY (day, visitor_hash)
+        );
+        CREATE TABLE IF NOT EXISTS meta (key TEXT PRIMARY KEY, value TEXT NOT NULL);
+        CREATE TABLE IF NOT EXISTS chat_limits (
+          day TEXT NOT NULL,
+          device_id TEXT NOT NULL,
+          count INTEGER NOT NULL,
+          PRIMARY KEY (day, device_id)
+        );
+        CREATE TABLE IF NOT EXISTS missing_searches (
+          day TEXT NOT NULL,
+          q TEXT NOT NULL,
+          count INTEGER NOT NULL DEFAULT 0,
+          PRIMARY KEY (day, q)
+        );
+      `);
+      await statsDb.run(`DELETE FROM visit_days WHERE day < date('now', '-90 days')`);
+      
+      const app = await createApp();
+      const PORT = process.env.PORT || 3000;
+      const server = app.listen(PORT, () => console.log(`FuelTech Master corriendo en http://localhost:${PORT}`));
 
-    process.on('SIGTERM', () => { server.close(() => { process.exit(0); }); });
+      process.on('SIGTERM', () => { server.close(() => { process.exit(0); }); });
+    } catch (err) {
+      console.error('❌ Error fatal al arrancar el servidor:', err);
+      process.exit(1);
+    }
   })();
 }
 

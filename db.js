@@ -13,6 +13,9 @@ if (USE_PG) {
     connectionString: process.env.DATABASE_URL,
     ssl: { rejectUnauthorized: false }
   });
+  pgPool.on('error', (err) => {
+    console.error('❌ Error inesperado en PostgreSQL:', err);
+  });
   console.log('🔗 Conectado a PostgreSQL');
 } else {
   sqliteDb = new Database(path.join(__dirname, 'fueltech.db'));
