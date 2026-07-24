@@ -141,8 +141,9 @@ async function createApp() {
     const hash = crypto.createHash('sha512')
       .update(`${visitSalt}|${day}|${req.ip}`)
       .digest('base64url').slice(0, 48);
-    const inserted = (await statsDb.run(`INSERT OR IGNORE INTO visit_days (day, visitor_hash) VALUES (?, ?)`, [day, hash])).changes;
-    if (inserted) await bumpTotal.run();
+    const inserted = await statsDb.all(`INSERT OR IGNORE INTO visit_days (day, visitor_hash) VALUES (?, ?)`)
+      .run(day, hash).changes;
+    if (inserted) bumpTotal.run();
     const today = await statsDb.get(`SELECT COUNT(*) c FROM visit_days WHERE day = ?`, day).c;
     res.set('Cache-Control', 'no-store');
     res.json({ total: await getTotal(), today });
@@ -245,7 +246,7 @@ async function createApp() {
     const title = `Presión de combustible ${name}: ${psi} PSI | FuelTech Master`;
     const description = `${v.brand} ${v.model} (${v.year_from}-${v.year_to}, ${v.engine}, inyección ${v.injection_name}): presión de riel ${psi} PSI (${bar} bar), ubicación del módulo y pilas de gasolina compatibles OEM y alternativas.`;
 
-    const mods = await db.all(`SELECT m.code, m.name, m.regulated_psi, m.flow_lph, vm.location_text
+    const mods = await db.get(`SELECT m.code, m.name, m.regulated_psi, m.flow_lph, vm.location_text
       FROM vehicle_modules vm JOIN fuel_modules m ON m.id = vm.module_id WHERE vm.vehicle_id = ?`, v.id);
     const pumps = await db.all(`SELECT DISTINCT p.code, p.manufacturer FROM vehicle_modules vm
       JOIN module_pumps mp ON mp.module_id = vm.module_id JOIN fuel_pumps p ON p.id = mp.pump_id
@@ -493,7 +494,7 @@ async function createApp() {
     // Si una búsqueda por modelo no devuelve nada, la registramos: es la mejor
     // señal de qué vehículos agregar al catálogo (demanda real insatisfecha).
     if (rows.length === 0 && typeof model === 'string' && model.trim()) {
-      try { await bumpMissing.run(new Date().toISOString().slice(0, 10), model.trim().slice(0, 60).toLowerCase()); }
+      try { bumpMissing.run(new Date().toISOString().slice(0, 10), model.trim().slice(0, 60).toLowerCase()); }
       catch (e) { /* no crítico */ }
     }
 
@@ -509,7 +510,7 @@ async function createApp() {
   app.get('/api/vehicles/:id', async (req, res) => {
     const id = toInt(req.params.id, 1, 1e9);
     if (id === null) return res.status(404).json({ error: 'Vehículo no encontrado' });
-    const v = await db.get(`
+    const v = await db.all(`
       SELECT v.*, b.name AS brand, it.code AS injection_code, it.name AS injection_name, it.description AS injection_desc
       FROM vehicles v
       JOIN brands b ON b.id = v.brand_id
@@ -518,7 +519,7 @@ async function createApp() {
     `, id);
     if (!v) return res.status(404).json({ error: 'Vehículo no encontrado' });
 
-    const modules = await db.all(`
+    const modules = await db.run(`
       SELECT vm.location_text, vm.location_zone, vm.requires_tank_removal, vm.access_notes,
              m.id, m.code, m.name, m.assembly_type, m.regulated_psi, m.flow_lph, m.regulator_type,
              m.float_type, m.strainer_ref, m.connector_desc, m.lines_desc, m.mount_desc, m.diagram_key
@@ -527,7 +528,13 @@ async function createApp() {
       WHERE vm.vehicle_id = ?
     `, v.id);
 
-
+    const pumpsStmt = await db.all(`
+      SELECT p.*, mp.fitment, mp.is_oem, mp.notes AS fitment_notes
+      FROM module_pumps mp
+      JOIN fuel_pumps p ON p.id = mp.pump_id
+      WHERE mp.module_id = ?
+      ORDER BY mp.is_oem DESC
+    `);
 
     res.set('Cache-Control', 'no-store');
     res.json({
@@ -545,7 +552,7 @@ async function createApp() {
       },
       notes: v.notes,
       data_verified: !!v.data_verified,
-      modules: await Promise.all(modules.map(async m => ({
+      modules: modules.map(m => ({
         id: m.id, code: m.code, name: m.name, assembly_type: m.assembly_type,
         location: {
           text: m.location_text, zone: m.location_zone,
@@ -558,7 +565,7 @@ async function createApp() {
           lines_desc: m.lines_desc, mount_desc: m.mount_desc
         },
         diagram_key: m.diagram_key,
-        compatible_pumps: (await db.all(`SELECT p.*, mp.fitment, mp.is_oem, mp.notes AS fitment_notes FROM module_pumps mp JOIN fuel_pumps p ON p.id = mp.pump_id WHERE mp.module_id = ? ORDER BY mp.is_oem DESC`, m.id)).map(p => ({
+        compatible_pumps: pumpsStmt.all(m.id).map(p => ({
           id: p.id, code: p.code, manufacturer: p.manufacturer, pump_style: p.pump_style,
           max_psi_direct: p.max_psi_direct, max_bar_direct: psiToBar(p.max_psi_direct),
           amperage_a: p.amperage_a, voltage_v: p.voltage_v, flow_lph_free: p.flow_lph_free,
@@ -566,7 +573,7 @@ async function createApp() {
           diagram_key: p.diagram_key,
           fitment: p.fitment, is_oem: !!p.is_oem, fitment_notes: p.fitment_notes
         }))
-      })))
+      }))
     });
   });
 
@@ -619,7 +626,7 @@ async function createApp() {
   app.get('/api/modules', catalogLimiter, async (req, res) => {
     const limit = toInt(req.query.limit, 1, MAX_PAGE_SIZE) ?? MAX_PAGE_SIZE;
     const offset = toInt(req.query.offset, 0, 10000) ?? 0;
-    const rows = await db.all(`
+    const rows = db.prepare(`
       SELECT m.id, m.code, m.name, m.assembly_type, m.regulated_psi, m.flow_lph, m.regulator_type, m.diagram_key,
              v.id AS vehicle_id, b.name AS brand, v.model, v.year_from, v.year_to
       FROM fuel_modules m
@@ -979,7 +986,7 @@ ${dbContext}`;
     if (!pump.code || !pump.manufacturer) return res.status(400).json({ error: 'Código y fabricante requeridos' });
     if (pump.max_psi_direct === null || pump.amperage_a === null) return res.status(400).json({ error: 'Presión máx. y amperaje requeridos' });
     try {
-      const info = await db.run(`INSERT INTO fuel_pumps (code,manufacturer,pump_style,max_psi_direct,amperage_a,voltage_v,flow_lph_free,inlet_desc,outlet_desc,polarity_desc,diagram_key)
+      const info = db.prepare(`INSERT INTO fuel_pumps (code,manufacturer,pump_style,max_psi_direct,amperage_a,voltage_v,flow_lph_free,inlet_desc,outlet_desc,polarity_desc,diagram_key)
         VALUES (@code,@manufacturer,@pump_style,@max_psi_direct,@amperage_a,@voltage_v,@flow_lph_free,@inlet_desc,@outlet_desc,@polarity_desc,@diagram_key)`, [pump]);
       pumpsCache = null;
       res.json({ id: info.lastInsertRowid });

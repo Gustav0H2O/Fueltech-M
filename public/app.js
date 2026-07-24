@@ -118,7 +118,8 @@ function CommentsSection({ vehicleId }) {
   const [comments, setComments] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
-  const [authorName, setAuthorName] = useState('');
+  const [savedName, setSavedName] = useState(() => localStorage.getItem('ftm_author_name') || '');
+  const [authorName, setAuthorName] = useState(savedName);
   const [content, setContent] = useState('');
   const [replyTo, setReplyTo] = useState(null);
   const [submitting, setSubmitting] = useState(false);
@@ -147,6 +148,10 @@ function CommentsSection({ vehicleId }) {
       });
       if (!res.ok) throw new Error('Error al enviar el comentario');
       const newComment = await res.json();
+      if (!savedName) {
+        localStorage.setItem('ftm_author_name', authorName.trim());
+        setSavedName(authorName.trim());
+      }
       setComments(prev => [...prev, newComment]);
       setContent('');
       setReplyTo(null);
@@ -181,7 +186,7 @@ function CommentsSection({ vehicleId }) {
       
       ${replyTo === c.id && html`
         <form class="comment-form mt" onSubmit=${(e) => handleSubmit(e, c.id)}>
-          <input type="text" class="styled-input" placeholder="Tu Nombre" value=${authorName} onInput=${e => setAuthorName(e.target.value)} required />
+          <input type="text" class="styled-input" placeholder="Tu Nombre" value=${authorName} onInput=${e => setAuthorName(e.target.value)} required disabled=${!!savedName} style=${savedName ? { opacity: 0.7, cursor: 'not-allowed' } : {}} />
           <textarea class="styled-input" placeholder="Escribe tu respuesta..." rows="2" value=${content} onInput=${e => setContent(e.target.value)} required style=${{ resize: 'vertical', marginTop: '6px' }}></textarea>
           <div style=${{ display: 'flex', gap: '8px', marginTop: '6px' }}>
             <button type="submit" class="v3d-btn" style=${{ position: 'static' }} disabled=${submitting}>
@@ -214,7 +219,7 @@ function CommentsSection({ vehicleId }) {
         ${replyTo === null && html`
           <form class="comment-form mt" onSubmit=${(e) => handleSubmit(e, null)} style=${{ borderTop: '1px solid var(--border)', paddingTop: '16px' }}>
             <h3 style=${{ fontSize: '13px', marginBottom: '8px', color: 'var(--text)' }}>Deja un comentario</h3>
-            <input type="text" class="styled-input" placeholder="Tu Nombre" value=${authorName} onInput=${e => setAuthorName(e.target.value)} required />
+            <input type="text" class="styled-input" placeholder="Tu Nombre" value=${authorName} onInput=${e => setAuthorName(e.target.value)} required disabled=${!!savedName} style=${savedName ? { opacity: 0.7, cursor: 'not-allowed' } : {}} />
             <textarea class="styled-input" placeholder="Escribe tu duda o comentario..." rows="3" value=${content} onInput=${e => setContent(e.target.value)} required style=${{ resize: 'vertical', marginTop: '6px' }}></textarea>
             <button type="submit" class="v3d-btn" style=${{ position: 'static', marginTop: '8px' }} disabled=${submitting}>
               ${submitting ? 'Enviando...' : 'Comentar'}

@@ -9,9 +9,10 @@ let sqliteDb = null;
 let sqliteStats = null;
 
 if (USE_PG) {
+  const isInternal = process.env.DATABASE_URL.includes('.internal');
   pgPool = new Pool({
     connectionString: process.env.DATABASE_URL,
-    ssl: { rejectUnauthorized: false }
+    ssl: isInternal ? false : { rejectUnauthorized: false }
   });
   pgPool.on('error', (err) => {
     console.error('❌ Error inesperado en PostgreSQL:', err);
