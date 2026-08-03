@@ -136,6 +136,12 @@ const MARK_ICONS = {
   Car: (s, c) => html`<svg width=${s} height=${s} viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 11 6.5 6.5A2 2 0 0 1 8.4 5h7.2a2 2 0 0 1 1.9 1.5L19 11" stroke=${c} opacity=".55"/><rect x="3" y="11" width="18" height="6" rx="2" stroke=${c} opacity=".55"/><path d="M6 14h.01M18 14h.01" stroke=${c}/></svg>`,
   Tag: (s, c) => html`<svg width=${s} height=${s} viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 2H4a2 2 0 0 0-2 2v8l10 10 10-10Z" stroke=${c} opacity=".55"/><circle cx="7.5" cy="7.5" r="1.5" fill=${c} stroke="none"/></svg>`,
   ArrowUpDown: (s, c) => html`<svg width=${s} height=${s} viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m7 3-4 4h3v10h2V7h3Z" stroke=${c} opacity=".55"/><path d="m17 21 4-4h-3V7h-2v10h-3Z" stroke=${c} opacity=".55"/></svg>`,
+  Wrench: (s, c) => html`<svg width=${s} height=${s} viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M14.7 6.3a4 4 0 0 0-5.4 5.4L3 18v3h3l6.3-6.3a4 4 0 0 0 5.4-5.4L15 11l-2-2Z" stroke=${c} opacity=".55"/><path d="M15.5 4.5 17 6" stroke=${c}/></svg>`,
+  BookOpen: (s, c) => html`<svg width=${s} height=${s} viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 6c-1.5-1.3-3.5-2-6-2H3v14h3c2.5 0 4.5.7 6 2 1.5-1.3 3.5-2 6-2h3V4h-3c-2.5 0-4.5.7-6 2Z" stroke=${c} opacity=".55"/><path d="M12 6v14" stroke=${c}/></svg>`,
+  Check: (s, c) => html`<svg width=${s} height=${s} viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m4 12.5 5 5L20 6.5" stroke=${c} opacity=".55"/></svg>`,
+  Plus: (s, c) => html`<svg width=${s} height=${s} viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 5v14M5 12h14" stroke=${c} opacity=".55"/></svg>`,
+  ClipboardCheck: (s, c) => html`<svg width=${s} height=${s} viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="5" y="4" width="14" height="17" rx="2" stroke=${c} opacity=".55"/><path d="M9 4V3h6v1" stroke=${c} opacity=".55"/><path d="m8.5 13 2.5 2.5 4.5-5" stroke=${c}/></svg>`,
+  Thermometer: (s, c) => html`<svg width=${s} height=${s} viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M14 14.8V4a2 2 0 0 0-4 0v10.8a4 4 0 1 0 4 0Z" stroke=${c} opacity=".55"/><path d="M12 17.5v-5" stroke=${c}/></svg>`,
 };
 /* Icono de marca: bicolor (gris + lima). El acento usa var(--accent) que en modo
    claro se oscurece a oliva (contraste) y el gris hereda currentColor. */
@@ -145,6 +151,330 @@ function MarkIcon({ name, size = 16, className = '' }) {
   const c = 'var(--accent)';
   return html`<span class=${'icon mark-icon' + (className ? ' ' + className : '')}>${icon(size, c)}</span>`;
 }
+
+/* ================================================================
+   HERRAMIENTAS DEL TALLER — funciones prácticas para el mecánico
+   ================================================================ */
+
+/* ---- Árbol de diagnóstico por síntomas ----
+   El mecánico elige el síntoma y la herramienta le sugiere causas probables
+   ordenadas por frecuencia y la prueba más rápida para confirmar cada una. */
+const DIAG_TREE = {
+  'no-arranca': {
+    label: 'No arranca / se ahoga', icon: 'Zap',
+    steps: [
+      { causa: 'Falta presión de combustible (bomba muerta o filtro tapado)', prueba: 'Gira la llave a ON y escucha la bomba 2s. Mide presión en el riel: debe estar en el rango de la ficha del vehículo.' },
+      { causa: 'Fusible o relé de la bomba quemado', prueba: 'Revisa el fusible de la bomba y el relé. Puentea el relé: si la bomba gira, el problema es el circuito de control.' },
+      { causa: 'Sin chispa (módulo de encendido o sensor)', prueba: 'Prueba chispa con bujía nueva. Si no hay, revisa el módulo de encendido y el sensor de posición del cigüeñal.' },
+      { causa: 'Inyector sin pulso (ECU en modo seguro)', prueba: 'Con lámpara de inyección (noid light) comprueba pulso en un inyector. Sin pulso: revisa señal del sensor de posición y tierras de la ECU.' },
+      { causa: 'Baja compresión en cilindros', prueba: 'Prueba de compresión: debe estar sobre 100 PSI y pareja entre cilindros.' },
+    ]
+  },
+  'falta-potencia': {
+    label: 'Falta potencia / jalonea', icon: 'Gauge',
+    steps: [
+      { causa: 'Filtro de gasolina tapado → presión cae bajo carga', prueba: 'Mide presión con el vehículo en movimiento o al acelerar a fondo: si cae más de 5 PSI, cambia el filtro.' },
+      { causa: 'Bomba gastada (no entrega flujo suficiente)', prueba: 'Mide el flujo de retorno o el amperaje: una bomba gastada consume menos de lo normal (ver calculadora eléctrica).' },
+      { causa: 'Cedazo del módulo obstruido', prueba: 'Síntoma clásico: arranca bien en frío, falla en caliente o con el tanque bajo. Inspecciona el cedazo al desarmar el módulo.' },
+      { causa: 'Regulador de presión con diafragma roto', prueba: 'Revisa si hay gasolina en la manguera de vacío del regulador. Si la hay, el diafragma está roto.' },
+      { causa: 'Sensor MAF o MAP sucio', prueba: 'Limpia el sensor con limpiador específico. Un sensor sucio provoca mezcla pobre y jaloneo.' },
+    ]
+  },
+  'ruido-bomba': {
+    label: 'Bomba hace ruido', icon: 'Pump',
+    steps: [
+      { causa: 'Nivel bajo de gasolina (la bomba se lubrica con el combustible)', prueba: 'Rellena el tanque. Si el ruido desaparece, era falta de combustible y la bomba está sufriendo.' },
+      { causa: 'Cedazo tapado → cavitación', prueba: 'La bomba "zumba" fuerte: el cedazo obstruido le impide succionar. Inspecciónalo al desarmar.' },
+      { causa: 'Bomba con rodamientos gastados', prueba: 'Si el ruido persiste con el tanque lleno y el cedazo limpio, la bomba está por fallar: cámbiala preventivamente.' },
+      { causa: 'Sujeción floja del módulo (vibra)', prueba: 'Revisa el anillo de retención y las gomas del módulo: un módulo suelto transmite ruido al chasis.' },
+    ]
+  },
+  'fuga-gasolina': {
+    label: 'Huele a gasolina / fuga', icon: 'Injector',
+    steps: [
+      { causa: 'Línea de retorno o conexión del módulo con fuga', prueba: 'Con el motor encendido, inspecciona conexiones y abrazaderas. Limpia y revisa con el vehículo elevado.' },
+      { causa: 'Tapa del módulo mal sellada', prueba: 'Revisa el sello (O-ring) de la tapa del módulo: si está cortado o deformado, cámbialo. No reutilices sellos viejos.' },
+      { causa: 'Inyector con fuga interna (drena presión)', prueba: 'Prueba de retención: la presión no debe caer más de 5 PSI en 5 minutos. Si cae, hay fuga en inyector o válvula check.' },
+      { causa: 'Manguera de vacío del regulador con gasolina', prueba: 'Si huele a gasolina por el múltiple, revisa el regulador: diafragma roto deja pasar combustible al vacío.' },
+      { causa: 'Tanque con fuga en costura o tapón', prueba: 'Inspecciona el tanque con el vehículo elevado, sobre todo en zonas de corrosión.' },
+    ]
+  },
+  'falla-en-caliente': {
+    label: 'Falla en caliente / no arranca en caliente', icon: 'Thermometer',
+    steps: [
+      { causa: 'Bomba con desgaste térmico (pierde presión al calentar)', prueba: 'Mide presión en frío y en caliente: si cae más de 8 PSI en caliente, la bomba está por fallar.' },
+      { causa: 'Válvula check interna del módulo drenando', prueba: 'Prueba de retención en caliente: la presión no debe caer rápido al apagar.' },
+      { causa: 'Sensor de temperatura (CTS) con lectura errónea', prueba: 'El CTS le dice a la ECU que el motor está frío → mezcla rica. Compara su lectura con un multímetro/escáner.' },
+      { causa: 'Módulo de encendido con falla térmica', prueba: 'Cuando falle, rocíale aire frío (o agua) al módulo: si arranca, es falla térmica del módulo.' },
+      { causa: 'Vapor lock en líneas de combustible', prueba: 'Más común en carburados o con líneas cerca del escape. Revisa el ruteo de líneas y el aislamiento térmico.' },
+    ]
+  },
+  'consumo-alto': {
+    label: 'Consumo alto de gasolina', icon: 'Droplets',
+    steps: [
+      { causa: 'Regulador con presión alta (mezcla rica)', prueba: 'Mide la presión en ralentí y compara con la especificación. Presión alta = mezcla rica = consumo alto.' },
+      { causa: 'Sensor de oxígeno (O2) gastado', prueba: 'Un O2 lento o muerto hace que la ECU inyecte de más. Escanea el voltaje del sensor: debe oscilar rápido entre 0.1 y 0.9V.' },
+      { causa: 'Sensor de temperatura (CTS) leyendo frío', prueba: 'Mezcla rica constante. Verifica con escáner la temperatura del motor vs. la real.' },
+      { causa: 'Filtro de aire tapado', prueba: 'Revisa el filtro: un filtro saturado empobrece/ensucia la mezcla y sube el consumo.' },
+      { causa: 'Freno de estacionamiento arrastrando o llantas bajas', prueba: 'Descarta lo mecánico antes de acusar al sistema de combustible.' },
+    ]
+  },
+};
+
+/* ---- Checklist de instalación de bomba/módulo ----
+   Pasos ordenados que el mecánico puede ir marcando; persiste por vehículo. */
+const INSTALL_CHECKLIST = [
+  'Aliviar presión: quitar fusible/relé de la bomba y arrancar hasta que se apague.',
+  'Desconectar el negativo de la batería.',
+  'Localizar el módulo según la ficha (zona y si requiere bajar tanque).',
+  'Limpiar la zona de trabajo y el borde del tanque antes de abrir.',
+  'Retirar el anillo de retención o tornillos; marcar la orientación de la tapa.',
+  'Extraer el módulo con cuidado (el flotador se daña fácil).',
+  'Desconectar el conector eléctrico y las líneas; tapar la boca del tanque.',
+  'Comparar la pila nueva contra la vieja: medidas, conector y polaridad.',
+  'Reemplazar el cedazo (pre-filtro) SIEMPRE al cambiar la bomba.',
+  'Instalar la pila nueva en el módulo; revisar el sello (O-ring) de la tapa.',
+  'Reinsertar el módulo respetando la orientación; no forzar.',
+  'Colocar el anillo de retención con su sello; apretar a su posición.',
+  'Reconectar líneas y conector; conectar la batería.',
+  'Primer encendido: llave en ON 2s (deja cebar la bomba), luego arrancar.',
+  'Verificar presión en el riel contra la especificación de la ficha.',
+  'Revisar fugas en conexiones y la tapa; probar arranque en caliente.',
+];
+
+/* ---- Glosario técnico ---- */
+const GLOSSARY = [
+  { t: 'PSI', d: 'Libras por pulgada cuadrada. Unidad de presión usada en sistemas de combustible (1 bar ≈ 14.5 PSI).' },
+  { t: 'Bar', d: 'Unidad métrica de presión. 1 bar ≈ 14.5 PSI. Común en manuales europeos y latinos.' },
+  { t: 'LPH', d: 'Litros por hora. Mide el flujo (caudal) que la bomba entrega. A mayor demanda del motor, más LPH necesita.' },
+  { t: 'Riel / Flauta', d: 'Tubo que distribuye combustible a los inyectores. Ahí se mide la presión de trabajo.' },
+  { t: 'Módulo de gasolina', d: 'Ensamble completo dentro del tanque: bomba, regulador (a veces), flotador, cedazo y conector.' },
+  { t: 'Pila de gasolina', d: 'La bomba en bruto (el corazón del módulo). Se vende suelta o dentro del módulo.' },
+  { t: 'Regulador de presión', d: 'Mantiene la presión del riel constante aliviando el exceso de retorno. Puede estar en el riel, en el módulo o en el cuerpo TBI.' },
+  { t: 'Cedazo', d: 'Pre-filtro de tela en la succión de la bomba. Se tapa con suciedad y mata bombas: cámbialo siempre.' },
+  { t: 'Returnless (sin retorno)', d: 'Sistema donde el regulador vive dentro del módulo y no hay línea de retorno al tanque.' },
+  { t: 'TBI', d: 'Inyección en el cuerpo del acelerador (Throttle Body Injection). El regulador suele estar en el cuerpo.' },
+  { t: 'MFI', d: 'Inyección multipunto: un inyector por cilindro, en el múltiple de admisión.' },
+  { t: 'GDI', d: 'Inyección directa: el combustible va directo a la cámara. Requiere alta presión y módulos especiales.' },
+  { t: 'Vortec / CSFI', d: 'Sistema GM con inyectores en el pleno (Central Sequential Fuel Injection). El regulador está en la unidad CSFI.' },
+  { t: 'Cavitación', d: 'La bomba succiona aire/vapor por succión restringida (cedazo tapado o tanque bajo). Suena como "grava" y destruye la bomba.' },
+  { t: 'Vapor lock', d: 'Burbujas de vapor en la línea que cortan el flujo. Más común con líneas calientes o baja presión.' },
+  { t: 'Check / Válvula antirretorno', d: 'Evita que la presión del riel regrese al tanque al apagar. Su falla causa arranques lentos en caliente.' },
+  { t: 'Amperaje', d: 'Consumo eléctrico de la bomba. Más de 20A indica motor atascado o corto; menos de 2A, circuito abierto.' },
+  { t: 'Flotador / Aforador', d: 'Sensor de nivel del tanque: un brazo con potenciómetro dentro del módulo.' },
+  { t: 'O-ring / Sello', d: 'Empaque de la tapa del módulo. Si se daña, hay olor a gasolina y posibles fugas.' },
+  { t: 'Jet-pump (GDI)', d: 'Pequeño venturi que llena el vaso del módulo en sistemas GDI de baja presión.' },
+];
+
+/* ---- Registro de trabajos (por vehículo) ---- */
+const JOBS_KEY = 'ft_jobs';
+const getJobs = () => { try { return JSON.parse(localStorage.getItem(JOBS_KEY) || '{}'); } catch (e) { return {}; } };
+const saveJobs = (jobs) => localStorage.setItem(JOBS_KEY, JSON.stringify(jobs));
+
+/* ---- Componente: Herramientas ---- */
+function Tools({ selectedId, meta }) {
+  const [tab, setTab] = useState('diag');
+  const [diag, setDiag] = useState(null);
+  const [checklist, setChecklist] = useState(() => {
+    const k = `ft_check_${selectedId || 'gral'}`;
+    try {
+      const saved = JSON.parse(localStorage.getItem(k) || '[]');
+      // si lo guardado no coincide con el checklist actual, se rellena con false
+      if (Array.isArray(saved) && saved.length === INSTALL_CHECKLIST.length) return saved;
+      return INSTALL_CHECKLIST.map(() => false);
+    } catch (e) { return INSTALL_CHECKLIST.map(() => false); }
+  });
+  const [gloss, setGloss] = useState('');
+  const [jobs, setJobs] = useState(getJobs);
+  const [jobText, setJobText] = useState('');
+  const [jobsFor, setJobsFor] = useState(selectedId || '');
+  const [compareA, setCompareA] = useState('');
+  const [compareB, setCompareB] = useState('');
+  const [pumps, setPumps] = useState([]);
+  const [vehicles, setVehicles] = useState([]);
+
+  useEffect(() => { api('/api/pumps').then(setPumps).catch(() => {}); }, []);
+  useEffect(() => { api('/api/vehicles').then(setVehicles).catch(() => {}); }, []);
+
+  const tabBtn = (id, icon, text) => html`
+    <button type="button" class="tool-tab" data-active=${tab === id} onClick=${() => setTab(id)}>
+      <${MarkIcon} name=${icon} size=${15} /> ${text}
+    </button>`;
+
+  /* ---- Diagnóstico ---- */
+  const runDiag = (key) => { setDiag(DIAG_TREE[key]); track('herramienta_diagnostico', { sintoma: key }); };
+  const diagResult = diag && html`
+    <div class="tool-diag">
+      <div class="tool-diag-head">
+        <${MarkIcon} name="Stethoscope" size=${16} />
+        <strong>${diag.label}</strong>
+        <button type="button" class="link-btn" onClick=${() => setDiag(null)}>← elegir otro síntoma</button>
+      </div>
+      ${diag.steps.map((s, i) => html`
+        <div class="tool-diag-step" key=${i}>
+          <div class="tool-diag-num">${i + 1}</div>
+          <div>
+            <div class="tool-diag-causa">${s.causa}</div>
+            <div class="tool-diag-prueba">${s.prueba}</div>
+          </div>
+        </div>`)}
+      <div class="alert blue" style=${{ marginTop: '12px' }}>
+        <${Icon} name="Info" size=${14} />
+        <span>Ordenado por frecuencia en taller. Siempre confirma con el manual de servicio del fabricante.</span>
+      </div>
+    </div>`;
+
+  /* ---- Checklist ---- */
+  const toggleCheck = (i) => {
+    const k = `ft_check_${selectedId || 'gral'}`;
+    const next = [...checklist];
+    next[i] = !next[i];
+    setChecklist(next);
+    localStorage.setItem(k, JSON.stringify(next));
+  };
+  const resetCheck = () => { const k = `ft_check_${selectedId || 'gral'}`; const fresh = INSTALL_CHECKLIST.map(() => false); setChecklist(fresh); localStorage.setItem(k, JSON.stringify(fresh)); };
+  const doneCount = checklist.filter(Boolean).length;
+
+  /* ---- Comparador ---- */
+  const cmp = (id) => pumps.find(p => p.id === Number(id));
+  const cmpRow = (label, a, b) => html`
+    <div class="cmp-row"><span class="cmp-lbl">${label}</span><span class="cmp-a">${a ?? '—'}</span><span class="cmp-b">${b ?? '—'}</span></div>`;
+  const both = compareA && compareB && cmp(compareA) && cmp(compareB);
+  const cmpBadge = (a, b) => a == null || b == null ? '' : (Math.abs(a - b) < 0.5 ? html`<span class="cmp-ok">✓</span>` : html`<span class="cmp-warn">≠</span>`);
+
+  /* ---- Registro ---- */
+  const jobsList = jobs[jobsFor] || [];
+  const addJob = () => {
+    const t = jobText.trim();
+    if (!t) return;
+    const next = { ...jobs, [jobsFor]: [...(jobs[jobsFor] || []), { t, ts: Date.now() }] };
+    setJobs(next); saveJobs(next); setJobText(''); toast('Trabajo registrado');
+  };
+  const rmJob = (i) => {
+    const next = { ...jobs, [jobsFor]: (jobs[jobsFor] || []).filter((_, j) => j !== i) };
+    setJobs(next); saveJobs(next);
+  };
+
+  return html`
+    <div class="tools-wrap">
+      <div class="panel" style=${{ padding: 0, overflow: 'hidden' }}>
+        <div style=${{ padding: '20px 24px 0' }}>
+          <div class="vh-head">
+            <h2><${MarkIcon} name="Wrench" size=${20} /> Herramientas del Taller</h2>
+          </div>
+          <p class="muted mt" style=${{ marginBottom: '18px' }}>Diagnóstico por síntomas, checklist de instalación, comparador de pilas, glosario y registro de trabajos.</p>
+        </div>
+        <div class="tool-tabs">
+          ${tabBtn('diag', 'Stethoscope', 'Diagnóstico')}
+          ${tabBtn('check', 'ClipboardCheck', 'Checklist')}
+          ${tabBtn('compare', 'Compare', 'Comparar Pilas')}
+          ${tabBtn('gloss', 'BookOpen', 'Glosario')}
+          ${tabBtn('jobs', 'History', 'Trabajos')}
+        </div>
+        <div style=${{ padding: '22px 24px 26px' }}>
+          ${tab === 'diag' && html`
+            <div>
+              <p class="muted" style=${{ marginBottom: '12px', fontSize: '12.5px' }}>Elige el síntoma y obtén las causas más probables con la prueba para confirmar cada una.</p>
+              <div class="tool-diag-grid">
+                ${Object.entries(DIAG_TREE).map(([k, v]) => html`
+                  <button type="button" class="tool-diag-btn" onClick=${() => runDiag(k)}>
+                    <${MarkIcon} name=${v.icon} size=${18} />
+                    <span>${v.label}</span>
+                  </button>`)}
+              </div>
+              ${diagResult}
+            </div>`}
+
+          ${tab === 'check' && html`
+            <div>
+              <div class="tool-check-head">
+                <strong>Instalación de bomba / módulo</strong>
+                <span class="result-count">${doneCount}/${checklist.length}</span>
+              </div>
+              <div class="tool-progress"><div style=${{ width: (checklist.length ? doneCount / checklist.length * 100 : 0) + '%' }}></div></div>
+              <div class="tool-check-list">
+                ${checklist.map((c, i) => html`
+                  <label class="tool-check-item" data-checked=${!!c}>
+                    <input type="checkbox" checked=${!!c} onChange=${() => toggleCheck(i)} />
+                    <span class="tool-check-box"><${Icon} name="Check" size=${12} /></span>
+                    <span>${INSTALL_CHECKLIST[i]}</span>
+                  </label>`)}
+              </div>
+              <button type="button" class="link-btn" onClick=${resetCheck} style=${{ marginTop: '12px' }}>Reiniciar checklist</button>
+            </div>`}
+
+          ${tab === 'compare' && html`
+            <div>
+              <div class="cmp-selects">
+                <div><label class="muted" style=${{ display: 'block', fontSize: '10px', letterSpacing: '1px', textTransform: 'uppercase', marginBottom: '5px' }}>Pila A</label>
+                  <select class="styled-input" value=${compareA} onChange=${e => setCompareA(e.target.value)}>
+                    <option value="">Elige una pila…</option>
+                    ${pumps.map(p => html`<option key=${p.id} value=${p.id}>${p.code} — ${p.manufacturer}</option>`)}
+                  </select></div>
+                <div><label class="muted" style=${{ display: 'block', fontSize: '10px', letterSpacing: '1px', textTransform: 'uppercase', marginBottom: '5px' }}>Pila B</label>
+                  <select class="styled-input" value=${compareB} onChange=${e => setCompareB(e.target.value)}>
+                    <option value="">Elige una pila…</option>
+                    ${pumps.map(p => html`<option key=${p.id} value=${p.id}>${p.code} — ${p.manufacturer}</option>`)}
+                  </select></div>
+              </div>
+              ${both && html`
+                <div class="cmp-table">
+                  <div class="cmp-head"><span></span><span class="cmp-a">${cmp(compareA).code}</span><span class="cmp-b">${cmp(compareB).code}</span></div>
+                  ${cmpRow('Fabricante', cmp(compareA).manufacturer, cmp(compareB).manufacturer)}
+                  ${cmpRow('Presión máx (PSI)', cmp(compareA).max_psi_direct, cmp(compareB).max_psi_direct)}
+                  ${cmpRow('Amperaje (A)', cmp(compareA).amperage_a, cmp(compareB).amperage_a)}
+                  ${cmpRow('Flujo libre (LPH)', cmp(compareA).flow_lph_free, cmp(compareB).flow_lph_free)}
+                  ${cmpRow('Estilo', cmp(compareA).pump_style, cmp(compareB).pump_style)}
+                  ${cmpRow('Entrada', cmp(compareA).inlet_desc, cmp(compareB).inlet_desc)}
+                  ${cmpRow('Salida', cmp(compareA).outlet_desc, cmp(compareB).outlet_desc)}
+                  ${cmpRow('Polaridad', cmp(compareA).polarity_desc, cmp(compareB).polarity_desc)}
+                  <div class="alert blue" style=${{ marginTop: '12px' }}>
+                    <${Icon} name="Info" size=${14} />
+                    <span>Comprueba medidas físicas y conector antes de comprar. “Universal” no significa compatible.</span>
+                  </div>
+                </div>`}
+            </div>`}
+
+          ${tab === 'gloss' && html`
+            <div>
+              <input type="search" class="styled-input" placeholder="Buscar término (ej. cedazo, regulador, PSI…)" value=${gloss} onChange=${e => setGloss(e.target.value)} style=${{ maxWidth: '420px' }} />
+              <div class="tool-gloss">
+                ${GLOSSARY.filter(g => !gloss || g.t.toLowerCase().includes(gloss.toLowerCase()) || g.d.toLowerCase().includes(gloss.toLowerCase()))
+                  .map(g => html`<div class="tool-gloss-item" key=${g.t}><strong>${g.t}</strong><span>${g.d}</span></div>`)}
+              </div>
+            </div>`}
+
+          ${tab === 'jobs' && html`
+            <div>
+              <div style=${{ display: 'flex', flexWrap: 'wrap', gap: '10px', alignItems: 'flex-end', marginBottom: '14px' }}>
+                <div style=${{ flex: '1', minWidth: '200px' }}>
+                  <label class="muted" style=${{ display: 'block', fontSize: '10px', letterSpacing: '1px', textTransform: 'uppercase', marginBottom: '5px' }}>Vehículo</label>
+                  <select class="styled-input" value=${jobsFor} onChange=${e => setJobsFor(e.target.value)}>
+                    <option value="">General / sin vehículo</option>
+                    ${vehicles.map(v => html`<option key=${v.id} value=${v.id}>${v.brand} ${v.model} ${v.year_from}-${v.year_to}</option>`)}
+                  </select>
+                </div>
+                <div style=${{ flex: '2', minWidth: '220px' }}>
+                  <label class="muted" style=${{ display: 'block', fontSize: '10px', letterSpacing: '1px', textTransform: 'uppercase', marginBottom: '5px' }}>Trabajo realizado</label>
+                  <input type="text" class="styled-input" placeholder="Ej. Cambio de bomba y cedazo; presión 52 PSI OK" value=${jobText} onChange=${e => setJobText(e.target.value)} onKeyDown=${e => { if (e.key === 'Enter') addJob(); }} />
+                </div>
+                <button type="button" class="tool-add-btn" onClick=${addJob} disabled=${!jobText.trim()}><${Icon} name="Plus" size=${14} /> Registrar</button>
+              </div>
+              <div class="tool-jobs">
+                ${jobsList.length === 0 ? html`<div class="empty" style=${{ padding: '24px' }}>No hay trabajos registrados para este vehículo.</div>`
+                  : jobsList.slice().reverse().map((j, ri) => html`
+                    <div class="tool-job" key=${ri}>
+                      <div class="tool-job-t">${j.t}</div>
+                      <div class="tool-job-meta">${new Date(j.ts).toLocaleString()} <button type="button" class="link-btn" onClick=${() => rmJob(jobsList.length - 1 - ri)}>quitar</button></div>
+                    </div>`)}
+              </div>
+              <p class="muted" style=${{ fontSize: '11px', marginTop: '10px' }}>Se guarda solo en este navegador (sin conexión a servidor).</p>
+            </div>`}
+        </div>
+      </div>
+    </div>`;
+}
+
 
 /* Reconstruye al cambiar de tema. Las escenas de Three.js fijan sus colores al
    crear los materiales, así que recolorear en vivo exigiría recorrerlas enteras;
@@ -1023,6 +1353,9 @@ function App() {
             <button type="button" class="mt" style=${{ marginTop: '8px', background: 'var(--card)', color: 'var(--text)', border: '1px solid var(--border-hi)' }} onClick=${() => { setViewState(viewState === 'calculators' ? 'search' : 'calculators'); }}>
               <${MarkIcon} name="Stethoscope" size=${14} /> ${viewState === 'calculators' ? 'Cerrar Calculadoras' : 'Abrir Calculadoras'}
             </button>
+            <button type="button" class="mt" style=${{ marginTop: '8px', background: 'var(--card)', color: 'var(--text)', border: '1px solid var(--border-hi)' }} onClick=${() => { setViewState(viewState === 'tools' ? 'search' : 'tools'); }}>
+              <${MarkIcon} name="Wrench" size=${14} /> ${viewState === 'tools' ? 'Cerrar Herramientas' : 'Herramientas del Taller'}
+            </button>
           </div>
           ${metaErr && html`<div class="alert"><${Icon} name="AlertTriangle" size=${14} /> Error al cargar catálogos. Verifica tu conexión.</div>`}
         </div>
@@ -1096,9 +1429,11 @@ function App() {
         <div class="preview-inner">
           ${viewState === 'calculators' 
              ? html`<${Calculators} />`
-             : selected
-               ? html`<${VehicleDetail} id=${selected} />`
-               : html`<div class="empty">SELECCIONA UN VEHÍCULO PARA VER SU FICHA TÉCNICA</div>`}
+             : viewState === 'tools'
+               ? html`<${Tools} selectedId=${selected} meta=${meta} />`
+               : selected
+                 ? html`<${VehicleDetail} id=${selected} />`
+                 : html`<div class="empty">SELECCIONA UN VEHÍCULO PARA VER SU FICHA TÉCNICA</div>`}
         </div>
       </div>
       <${ChatBot} vehicleId=${selected} />
