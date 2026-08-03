@@ -343,15 +343,24 @@ function VehicleDetail({ id }) {
     </div>`;
 }
 
-/* ---------- Isotipo FT (marca propia, sin logos de terceros) ---------- */
-const LogoSVG = () => html`
-  <svg class="logo-ft" viewBox="0 0 70 46" xmlns="http://www.w3.org/2000/svg">
-    <g transform="skewX(-8)">
-      <text x="2" y="34" font-family="Montserrat, system-ui, -apple-system, sans-serif" font-weight="800" font-size="36" fill="var(--text)" letter-spacing="-2">F</text>
-      <text x="27" y="34" font-family="Montserrat, system-ui, -apple-system, sans-serif" font-weight="800" font-size="36" fill="var(--red)" letter-spacing="-2">T</text>
-      <polygon points="2,39 48,39 44,45 -2,45" fill="var(--red)"/>
-    </g>
-  </svg>`;
+/* ---------- Logotipo FuelTech Master ----------
+   Las dos versiones del manual de marca. Cuál se ve lo decide el CSS
+   (--logo-dark / --logo-light) según el esquema de color del sistema:
+   así el cambio de tema es instantáneo y no depende de JS. */
+const LogoLockup = () => html`
+  <${React.Fragment}>
+    <img class="logo-lockup on-dark" src="/brand/logo-dark.png" width="760" height="205"
+         alt="FuelTech Master" decoding="async" />
+    <img class="logo-lockup on-light" src="/brand/logo-light.png" width="760" height="193"
+         alt="" aria-hidden="true" decoding="async" />
+  <//>`;
+
+/* Isotipo suelto, para cabeceras compactas y avatares */
+const LogoMark = ({ className = '' }) => html`
+  <${React.Fragment}>
+    <img class=${'logo-mark on-dark ' + className} src="/brand/mark-dark.png" width="256" height="283" alt="" aria-hidden="true" decoding="async" />
+    <img class=${'logo-mark on-light ' + className} src="/brand/mark-light.png" width="256" height="266" alt="" aria-hidden="true" decoding="async" />
+  <//>`;
 
 /* Lee filtros y vehículo seleccionado desde la URL para que una búsqueda o ficha sea compartible/marcable */
 function readURLState() {
@@ -463,14 +472,14 @@ function ChatBot({ vehicleId }) {
       <!-- Botón flotante -->
       <button type="button" class="chat-fab" onClick=${() => setOpen(!open)}
               aria-label=${open ? 'Cerrar chat' : 'Abrir chat de IA'}>
-        <${Icon} name=${open ? 'X' : 'Bot'} size=${22} />
+        <${Icon} name=${open ? 'X' : 'BrainCircuit'} size=${22} />
       </button>
 
       <!-- Panel de chat -->
       ${open && html`
         <div class="chat-panel" role="dialog" aria-label="Chat de asistencia automotriz">
           <div class="chat-head">
-            <${Icon} name="Bot" size=${18} label="Asistente IA" />
+            <${Icon} name="BrainCircuit" size=${18} label="Asistente IA" />
             <span>Asistente Técnico</span>
             ${remaining !== null && html`<span class="chat-remaining">${remaining}/3</span>`}
             <button type="button" class="chat-close" onClick=${() => setOpen(false)} aria-label="Cerrar">
@@ -486,7 +495,7 @@ function ChatBot({ vehicleId }) {
             `}
             ${messages.length === 0 && !limitReached && html`
               <div class="chat-empty">
-                <${Icon} name="Bot" size=${28} />
+                <${Icon} name="BrainCircuit" size=${28} />
                 <p>Pregúntame sobre especificaciones técnicas de combustible</p>
                 <div class="chat-suggestions">
                   <button type="button" onClick=${() => send('¿Qué PSI necesita un Tsuru III?')}>¿PSI del Tsuru?</button>
@@ -499,13 +508,13 @@ function ChatBot({ vehicleId }) {
             `}
             ${messages.map((m, i) => html`
               <div key=${i} class=${'chat-msg ' + (m.role === 'user' ? 'user' : 'bot')}>
-                ${m.role === 'bot' && html`<div class="chat-avatar"><${Icon} name="Bot" size=${14} /></div>`}
+                ${m.role === 'bot' && html`<div class="chat-avatar"><${Icon} name="BrainCircuit" size=${14} /></div>`}
                 <div class="chat-bubble">${m.content}</div>
               </div>
             `)}
             ${loading && html`
               <div class="chat-msg bot">
-                <div class="chat-avatar"><${Icon} name="Bot" size=${14} /></div>
+                <div class="chat-avatar"><${Icon} name="BrainCircuit" size=${14} /></div>
                 <div class="chat-bubble thinking">
                   <span class="dot-pulse"></span>
                 </div>
@@ -575,7 +584,7 @@ function Calculators() {
   const tabBtn = (id, icon, text) => html`
     <button type="button" onClick=${() => setTab(id)} style=${{
       flex: 1, padding: '14px 8px', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px',
-      background: tab === id ? 'rgba(229,57,53,.08)' : 'transparent',
+      background: tab === id ? 'var(--accent-soft)' : 'transparent',
       border: 'none', borderBottom: tab === id ? '2px solid var(--red)' : '2px solid transparent',
       color: tab === id ? 'var(--text)' : 'var(--muted)',
       fontFamily: 'var(--font)', fontSize: '11px', fontWeight: '700', letterSpacing: '1px', textTransform: 'uppercase',
@@ -591,7 +600,7 @@ function Calculators() {
       <div class="panel" style=${{ padding: 0, overflow: 'hidden' }}>
         <div style=${{ padding: '20px 24px 0' }}>
           <div class="vh-head">
-            <h2><${Icon} name="Calculator" size=${20} /> Diagnóstico Profesional</h2>
+            <h2><${Icon} name="Stethoscope" size=${20} /> Diagnóstico Profesional</h2>
           </div>
           <p class="muted mt" style=${{ marginBottom: '20px' }}>Herramientas técnicas para cálculo de caudal y análisis eléctrico de bombas de combustible.</p>
         </div>
@@ -608,7 +617,7 @@ function Calculators() {
             <div class="grid2">
               <div style=${innerBoxStyle}>
                 <h3 style=${{ fontSize: '14.5px', marginBottom: '16px', display: 'flex', alignItems: 'center', gap: '8px' }}>
-                  <${Icon} name="Filter" size=${16} /> Requerimiento por Motor
+                  <${Icon} name="Cpu" size=${16} /> Requerimiento por Motor
                 </h3>
                 <div style=${{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
                   <div>
@@ -656,7 +665,7 @@ function Calculators() {
           ${tab === 'pressure' ? html`
             <div style=${innerBoxStyle}>
               <h3 style=${{ fontSize: '14.5px', marginBottom: '16px', display: 'flex', alignItems: 'center', gap: '8px' }}>
-                <${Icon} name="ArrowRightLeft" size=${16} /> Conversor de Presión (Riel)
+                <${Icon} name="Gauge" size=${16} /> Conversor de Presión (Riel)
               </h3>
               <div style=${{ display: 'grid', gridTemplateColumns: '1fr auto 1fr', gap: '20px', alignItems: 'end' }}>
                 <div>
@@ -694,7 +703,7 @@ function Calculators() {
 
               <div style=${innerBoxStyle}>
                 <h3 style=${{ fontSize: '14.5px', marginBottom: '16px', display: 'flex', alignItems: 'center', gap: '8px', color: 'var(--amber)' }}>
-                  <${Icon} name="ActivitySquare" size=${16} /> Diagnóstico Amperaje
+                  <${Icon} name="CircuitBoard" size=${16} /> Diagnóstico Amperaje
                 </h3>
                 <div style=${{ flex: 1, display: 'flex', flexDirection: 'column', justifyContent: 'center', alignItems: 'center', gap: '8px', padding: '10px 0' }}>
                   <div style=${{ fontSize: '12px', color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '2px' }}>Consumo Teórico</div>
@@ -843,11 +852,8 @@ function App() {
       <!-- Panel de filtros: siempre fijo al lado -->
       <aside class="search-pane">
         <div class="logo-block">
-          <${LogoSVG} />
-          <div class="brand-text">
-            <h1 class="title">FUEL<span>TECH</span></h1>
-            <div class="subtitle">MASTER</div>
-          </div>
+          <${LogoLockup} />
+          <h1 class="sr-only">FuelTech Master</h1>
         </div>
 
         <div class="panel">
@@ -867,7 +873,7 @@ function App() {
                      placeholder=${meta ? `${meta.year_range.min}–${meta.year_range.max}` : ''}
                      title=${meta ? `Año del modelo, entre ${meta.year_range.min} y ${meta.year_range.max}` : 'Año del modelo'}
                      value=${filters.year} onChange=${set('year')} /></div>
-            <div><label htmlFor="f-inj"><${Icon} name="Droplet" size=${13} /> Tipo de Inyección</label>
+            <div><label htmlFor="f-inj"><${Icon} name="Fuel" size=${13} /> Tipo de Inyección</label>
               <select id="f-inj" name="injection_type" autocomplete="off" title="Filtra por tipo de sistema de inyección de combustible" value=${filters.injection_type_id} onChange=${set('injection_type_id')}>
                 <option value="">Todas</option>
                 ${meta?.injection_types.map(t => html`<option key=${t.id} value=${t.id}>${t.name}</option>`)}
@@ -965,7 +971,7 @@ function App() {
           Usamos almacenamiento local para tus preferencias, estadísticas anónimas (respetamos Do-Not-Track) y cookies de terceros —incluido Google— para mostrar y medir anuncios.
           Detalle y cómo desactivarlos en la <a href="/privacidad" style=${{color: 'var(--red)'}}>política de privacidad y cookies</a>.
         </p>
-        <button type="button" onClick=${acceptPrivacy} style=${{background: 'var(--red)', color: '#fff', border: 'none', padding: '8px 16px', borderRadius: '4px', cursor: 'pointer', fontSize: '11.5px', fontWeight: 600, width: '100%'}}>Aceptar y continuar</button>
+        <button type="button" onClick=${acceptPrivacy} style=${{background: 'var(--accent-fill)', color: 'var(--accent-ink)', border: 'none', padding: '8px 16px', borderRadius: '4px', cursor: 'pointer', fontSize: '11.5px', fontWeight: 600, width: '100%'}}>Aceptar y continuar</button>
       </div>`}
     </div>`;
 }

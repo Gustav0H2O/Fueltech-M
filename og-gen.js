@@ -12,6 +12,9 @@ fs.mkdirSync(OUT, { recursive: true });
 const db = new Database(path.join(__dirname, 'fueltech.db'), { readonly: true });
 
 const esc = (s) => String(s ?? '').replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+// Isotipo embebido: la página se renderiza desde una cadena (sin servidor), así que
+// una ruta relativa no resolvería. En base64 viaja dentro del propio HTML.
+const MARK_B64 = fs.readFileSync(path.join(__dirname, 'public', 'brand', 'mark-dark.png')).toString('base64');
 const bar = (psi) => (psi == null ? '' : (psi * 0.0689476).toFixed(1));
 
 function card({ title, sub, big, bigSmall, badge }) {
@@ -19,25 +22,28 @@ function card({ title, sub, big, bigSmall, badge }) {
   <link href="https://fonts.googleapis.com/css2?family=Montserrat:wght@500;700;800&display=swap" rel="stylesheet">
   <style>
     *{margin:0;box-sizing:border-box}
-    body{width:1200px;height:630px;overflow:hidden;font-family:Montserrat,Arial,Helvetica,sans-serif;background:#0D1117;color:#E5E7EB}
+    body{width:1200px;height:630px;overflow:hidden;font-family:Montserrat,Arial,Helvetica,sans-serif;background:#0F1113;color:#E8EAE6}
     .bg{position:absolute;inset:0;background:
-      radial-gradient(ellipse 720px 520px at 8% -12%, rgba(229,57,53,.20), transparent),
-      radial-gradient(ellipse 820px 620px at 104% 118%, rgba(74,85,98,.22), transparent);}
-    .strip{position:absolute;left:0;top:0;height:100%;width:14px;background:linear-gradient(#E53935,#b71c1c)}
+      radial-gradient(ellipse 720px 520px at 8% -12%, rgba(174,204,58,.18), transparent),
+      radial-gradient(ellipse 820px 620px at 104% 118%, rgba(126,133,138,.22), transparent);}
+    .strip{position:absolute;left:0;top:0;height:100%;width:14px;background:linear-gradient(#C2DE4C,#8FAA22)}
     .wrap{position:relative;padding:64px 74px;height:100%;display:flex;flex-direction:column}
+    .head{display:flex;align-items:center;gap:20px}
+    .mark{width:64px;height:auto;display:block}
     .brand{font-weight:800;font-size:30px;letter-spacing:3px}
-    .brand span{color:#E53935}
-    .kick{margin-top:8px;font-weight:700;font-size:15px;letter-spacing:6px;color:#979EA7;text-transform:uppercase}
+    .brand span{color:#AECC3A}
+    .kick{margin-top:8px;font-weight:700;font-size:15px;letter-spacing:6px;color:#969C99;text-transform:uppercase}
     .main{margin-top:auto}
     .title{font-weight:800;font-size:62px;line-height:1.02;letter-spacing:-1px}
-    .sub{margin-top:14px;font-weight:500;font-size:25px;color:#B7BFC9}
+    .sub{margin-top:14px;font-weight:500;font-size:25px;color:#BFC5BE}
     .big{margin-top:24px;font-weight:800;font-size:116px;line-height:.86;color:#fff}
-    .big small{font-weight:500;font-size:33px;color:#979EA7;letter-spacing:0}
-    .badge{display:inline-block;margin-top:26px;font-weight:700;font-size:21px;letter-spacing:2px;text-transform:uppercase;color:#E53935;border:2px solid rgba(229,57,53,.5);border-radius:4px;padding:8px 18px}
-    .foot{position:absolute;right:74px;bottom:54px;font-weight:600;font-size:19px;color:#8b929b;text-align:right;line-height:1.5}
+    .big small{font-weight:500;font-size:33px;color:#969C99;letter-spacing:0}
+    .badge{display:inline-block;margin-top:26px;font-weight:700;font-size:21px;letter-spacing:2px;text-transform:uppercase;color:#AECC3A;border:2px solid rgba(174,204,58,.5);border-radius:4px;padding:8px 18px}
+    .foot{position:absolute;right:74px;bottom:54px;font-weight:600;font-size:19px;color:#8b918b;text-align:right;line-height:1.5}
   </style></head>
   <body><div class="bg"></div><div class="strip"></div><div class="wrap">
-    <div><div class="brand">FUEL<span>TECH</span> MASTER</div><div class="kick">Presión de combustible</div></div>
+    <div class="head"><img class="mark" src="data:image/png;base64,${MARK_B64}" alt="">
+      <div><div class="brand">FUEL<span>TECH</span> MASTER</div><div class="kick">Presión de combustible</div></div></div>
     <div class="main">
       <div class="title">${esc(title)}</div>
       <div class="sub">${esc(sub)}</div>

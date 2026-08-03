@@ -1,6 +1,8 @@
 <div align="center">
   
-# <span style="color: #E5E7EB;">F</span><span style="color: #E53935;">T</span> FuelTech Master
+<img src="public/brand/logo-light.png" alt="FuelTech Master" width="320">
+
+# FuelTech Master
 
 **El Catálogo Definitivo de Pilas y Módulos de Gasolina para Latinoamérica**
 

@@ -44,7 +44,7 @@
 
       ctx.beginPath();
       ctx.arc(p.x, p.y, p.r, 0, 7);
-      ctx.fillStyle = p.hot ? 'rgba(229,57,53,.5)' : 'rgba(151,158,167,.3)';
+      ctx.fillStyle = p.hot ? 'rgba(174,204,58,.55)' : 'rgba(151,158,167,.3)';
       ctx.fill();
     }
 

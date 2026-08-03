@@ -187,6 +187,14 @@ async function createApp(dbOverride, statsOverride) {
     .toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, '');
   const vehicleSlug = (v) => `${slugify(v.brand)}-${slugify(v.model)}-${v.year_from}-${v.year_to}-${v.id}`;
 
+  // Logotipo de marca para las páginas renderizadas en servidor (SEO/legales/guías).
+  // Las clases on-dark/on-light las resuelve el CSS de index.html según el tema,
+  // igual que en la app: aquí no hay JS que pueda elegir por nosotros.
+  const BRAND_LOCKUP = `<a href="/" style="display:inline-block;margin-bottom:22px">
+      <img class="logo-lockup on-dark" src="/brand/logo-dark.png" width="760" height="205" alt="FuelTech Master" style="width:200px;height:auto">
+      <img class="logo-lockup on-light" src="/brand/logo-light.png" width="760" height="193" alt="" style="width:200px;height:auto">
+    </a>`;
+
   const HOME_TITLE = 'FuelTech Master — Presión de riel (PSI/Bar), módulos y pilas de gasolina';
   const HOME_DESC = 'Consulta técnica gratis para mecánicos de Latinoamérica: presión de riel (PSI/Bar), ubicación del módulo y pilas (bombas) de gasolina compatibles OEM y alternativas. Diagnóstico del sistema de combustible al instante.';
 
@@ -293,22 +301,23 @@ async function createApp(dbOverride, statsOverride) {
     const related = await db.all(`SELECT v.id, b.name AS brand, v.model, v.year_from, v.year_to
       FROM vehicles v JOIN brands b ON b.id = v.brand_id
       WHERE v.brand_id = (SELECT brand_id FROM vehicles WHERE id = ?) AND v.id != ?
-      ORDER BY v.model, v.year_from LIMIT 8`, v.id, v.id);
+      ORDER BY v.model, v.year_from LIMIT 8`, [v.id, v.id]);
     const relHtml = related.length
-      ? `<h2 style="font-size:16px;color:#E53935;margin-top:24px">Otros ${esc(v.brand)}</h2><ul>${related.map(r => `<li><a href="/vehiculo/${vehicleSlug(r)}" style="color:#B7BFC9">${esc(r.brand)} ${esc(r.model)} ${r.year_from}-${r.year_to}</a></li>`).join('')}</ul>`
+      ? `<h2 style="font-size:16px;color:var(--accent);margin-top:24px">Otros ${esc(v.brand)}</h2><ul>${related.map(r => `<li><a href="/vehiculo/${vehicleSlug(r)}" style="color:var(--text-alt)">${esc(r.brand)} ${esc(r.model)} ${r.year_from}-${r.year_to}</a></li>`).join('')}</ul>`
       : '';
 
-    const rootContent = `<main style="max-width:760px;margin:0 auto;padding:40px 22px;color:#E5E7EB;font-family:Montserrat,system-ui,sans-serif;line-height:1.6">
-      <p style="font:700 11px/1 sans-serif;letter-spacing:2px;text-transform:uppercase;color:#979EA7">FuelTech Master · Ficha técnica</p>
+    const rootContent = `<main style="max-width:760px;margin:0 auto;padding:40px 22px;color:var(--text);font-family:Montserrat,system-ui,sans-serif;line-height:1.6">
+      ${BRAND_LOCKUP}
+      <p style="font:700 11px/1 sans-serif;letter-spacing:2px;text-transform:uppercase;color:var(--muted)">Ficha técnica</p>
       <h1 style="font-size:26px;margin:10px 0 4px">${esc(name)} — Presión de combustible</h1>
-      <p style="color:#B7BFC9">${esc(v.engine)} · Inyección ${esc(v.injection_name)}</p>
-      <p style="font-size:30px;font-weight:800;margin:16px 0">${esc(psi)} PSI <span style="font-size:14px;font-weight:400;color:#979EA7">(${esc(bar)} bar) en riel / flauta de inyectores</span></p>
-      ${modHtml ? `<h2 style="font-size:16px;color:#E53935;margin-top:24px">Módulo de combustible</h2><ul>${modHtml}</ul>` : ''}
-      ${pumpHtml ? `<h2 style="font-size:16px;color:#E53935;margin-top:24px">Pilas (bombas) de gasolina compatibles</h2><ul>${pumpHtml}</ul>` : ''}
-      ${v.notes ? `<p style="color:#B7BFC9;margin-top:16px">${esc(v.notes)}</p>` : ''}
+      <p style="color:var(--text-alt)">${esc(v.engine)} · Inyección ${esc(v.injection_name)}</p>
+      <p style="font-size:30px;font-weight:800;margin:16px 0">${esc(psi)} PSI <span style="font-size:14px;font-weight:400;color:var(--muted)">(${esc(bar)} bar) en riel / flauta de inyectores</span></p>
+      ${modHtml ? `<h2 style="font-size:16px;color:var(--accent);margin-top:24px">Módulo de combustible</h2><ul>${modHtml}</ul>` : ''}
+      ${pumpHtml ? `<h2 style="font-size:16px;color:var(--accent);margin-top:24px">Pilas (bombas) de gasolina compatibles</h2><ul>${pumpHtml}</ul>` : ''}
+      ${v.notes ? `<p style="color:var(--text-alt);margin-top:16px">${esc(v.notes)}</p>` : ''}
       ${relHtml}
-      <p style="margin-top:28px"><a href="/vehiculo/${canonicalSlug}" style="color:#E53935;font-weight:700">Abrir herramienta interactiva (visor 3D, chat y más) →</a></p>
-      <p style="margin-top:8px"><a href="/vehiculos" style="color:#979EA7">Ver todos los vehículos</a> · <a href="/guias" style="color:#979EA7">Guías de diagnóstico</a></p>
+      <p style="margin-top:28px"><a href="/vehiculo/${canonicalSlug}" style="color:var(--accent);font-weight:700">Abrir herramienta interactiva (visor 3D, chat y más) →</a></p>
+      <p style="margin-top:8px"><a href="/vehiculos" style="color:var(--muted)">Ver todos los vehículos</a> · <a href="/guias" style="color:var(--muted)">Guías de diagnóstico</a></p>
     </main>`;
 
     const faq = [{ q: `¿Qué presión de combustible necesita un ${name}?`,
@@ -328,10 +337,11 @@ async function createApp(dbOverride, statsOverride) {
   app.get('/vehiculos', async (req, res) => {
     const rows = await db.all(`SELECT v.id, b.name AS brand, v.model, v.year_from, v.year_to, v.rail_pressure_psi_max
       FROM vehicles v JOIN brands b ON b.id = v.brand_id ORDER BY b.name, v.model, v.year_from`);
-    const items = rows.map(v => `<li><a href="/vehiculo/${vehicleSlug(v)}" style="color:#E5E7EB;text-decoration:none">${esc(v.brand)} ${esc(v.model)} ${v.year_from}-${v.year_to} — ${v.rail_pressure_psi_max} PSI</a></li>`).join('');
-    const rootContent = `<main style="max-width:820px;margin:0 auto;padding:40px 22px;color:#E5E7EB;font-family:Montserrat,system-ui,sans-serif">
+    const items = rows.map(v => `<li><a href="/vehiculo/${vehicleSlug(v)}" style="color:var(--text);text-decoration:none">${esc(v.brand)} ${esc(v.model)} ${v.year_from}-${v.year_to} — ${v.rail_pressure_psi_max} PSI</a></li>`).join('');
+    const rootContent = `<main style="max-width:820px;margin:0 auto;padding:40px 22px;color:var(--text);font-family:Montserrat,system-ui,sans-serif">
+      ${BRAND_LOCKUP}
       <h1 style="font-size:24px">Catálogo de presión de combustible por vehículo</h1>
-      <p style="color:#B7BFC9">Presión de riel, módulo y pilas de gasolina compatibles para ${rows.length} vehículos de Latinoamérica.</p>
+      <p style="color:var(--text-alt)">Presión de riel, módulo y pilas de gasolina compatibles para ${rows.length} vehículos de Latinoamérica.</p>
       <ul style="columns:2;column-gap:28px;margin-top:16px;line-height:2;padding-left:18px">${items}</ul>
     </main>`;
     res.set('Cache-Control', 'public, max-age=600');
@@ -351,9 +361,9 @@ async function createApp(dbOverride, statsOverride) {
   const SITE_OWNER = process.env.SITE_OWNER || 'FuelTech Master';
   const LEGAL_UPDATED = '2 de agosto de 2026';
 
-  const h2 = (t) => `<h2 style="font-size:17px;color:#E53935;margin-top:26px;margin-bottom:8px">${t}</h2>`;
-  const p = (t) => `<p style="color:#B7BFC9;margin-bottom:10px">${t}</p>`;
-  const ul = (items) => `<ul style="color:#B7BFC9;padding-left:20px;margin-bottom:10px;line-height:1.7">${items.map(i => `<li>${i}</li>`).join('')}</ul>`;
+  const h2 = (t) => `<h2 style="font-size:17px;color:var(--accent);margin-top:26px;margin-bottom:8px">${t}</h2>`;
+  const p = (t) => `<p style="color:var(--text-alt);margin-bottom:10px">${t}</p>`;
+  const ul = (items) => `<ul style="color:var(--text-alt);padding-left:20px;margin-bottom:10px;line-height:1.7">${items.map(i => `<li>${i}</li>`).join('')}</ul>`;
 
   const PAGES = [
     {
@@ -373,9 +383,9 @@ async function createApp(dbOverride, statsOverride) {
           'Catálogos y fichas de especificación de fabricantes de bombas y módulos de combustible.',
           'Mediciones y correcciones aportadas por mecánicos que usan la plataforma, revisadas antes de publicarse.'
         ])}
-        ${p('Cada ficha indica el rango de presión esperado, no un valor absoluto: la lectura real varía con el estado del vehículo, la altitud y las condiciones de la prueba. Las fichas se revisan y corrigen de forma continua; si detectas un dato equivocado, <a href="/contacto" style="color:#E53935">escríbenos</a> y lo verificamos.')}
+        ${p('Cada ficha indica el rango de presión esperado, no un valor absoluto: la lectura real varía con el estado del vehículo, la altitud y las condiciones de la prueba. Las fichas se revisan y corrigen de forma continua; si detectas un dato equivocado, <a href="/contacto" style="color:var(--accent)">escríbenos</a> y lo verificamos.')}
         ${h2('Cómo se sostiene el sitio')}
-        ${p('La consulta es gratuita. El sitio se financia con publicidad de terceros, que se muestra claramente separada del contenido técnico. Los anuncios no influyen en los datos publicados ni en las recomendaciones de diagnóstico. Puedes ver el detalle del tratamiento de datos en la <a href="/privacidad" style="color:#E53935">política de privacidad</a>.')}`
+        ${p('La consulta es gratuita. El sitio se financia con publicidad de terceros, que se muestra claramente separada del contenido técnico. Los anuncios no influyen en los datos publicados ni en las recomendaciones de diagnóstico. Puedes ver el detalle del tratamiento de datos en la <a href="/privacidad" style="color:var(--accent)">política de privacidad</a>.')}`
     },
     {
       slug: 'contacto',
@@ -385,17 +395,17 @@ async function createApp(dbOverride, statsOverride) {
       h1: 'Contacto',
       html: `${p('Este es un proyecto atendido por una persona, no por un equipo de soporte: respondemos en cuanto podemos, normalmente dentro de unos días hábiles.')}
         ${h2('Correo electrónico')}
-        ${p(`<a href="mailto:${esc(CONTACT_EMAIL)}" style="color:#E53935;font-weight:700;font-size:16px">${esc(CONTACT_EMAIL)}</a>`)}
+        ${p(`<a href="mailto:${esc(CONTACT_EMAIL)}" style="color:var(--accent);font-weight:700;font-size:16px">${esc(CONTACT_EMAIL)}</a>`)}
         ${h2('Escríbenos si quieres')}
         ${ul([
           '<strong>Reportar un dato incorrecto.</strong> Indica marca, modelo, año y motor, y el valor que mediste. Es la forma más útil de ayudar al resto de mecánicos.',
           '<strong>Pedir que agreguemos un vehículo.</strong> Si buscaste un modelo y no estaba, dinos cuál.',
           '<strong>Consultas de publicidad</strong> o colaboración.',
-          '<strong>Privacidad.</strong> Solicitudes de acceso, corrección o eliminación de datos, según la <a href="/privacidad" style="color:#E53935">política de privacidad</a>.',
+          '<strong>Privacidad.</strong> Solicitudes de acceso, corrección o eliminación de datos, según la <a href="/privacidad" style="color:var(--accent)">política de privacidad</a>.',
           '<strong>Contenido de terceros.</strong> Reclamos sobre comentarios publicados por usuarios o sobre derechos de autor.'
         ])}
         ${h2('Antes de escribir')}
-        ${p('Si tu duda es de diagnóstico, revisa primero las <a href="/guia/como-medir-la-presion-de-combustible" style="color:#E53935">guías técnicas</a>: cubren cómo medir la presión, qué significa una lectura baja y cómo distinguir una bomba muerta de un problema eléctrico. No realizamos diagnósticos a distancia de vehículos concretos.')}`
+        ${p('Si tu duda es de diagnóstico, revisa primero las <a href="/guia/como-medir-la-presion-de-combustible" style="color:var(--accent)">guías técnicas</a>: cubren cómo medir la presión, qué significa una lectura baja y cómo distinguir una bomba muerta de un problema eléctrico. No realizamos diagnósticos a distancia de vehículos concretos.')}`
     },
     {
       slug: 'privacidad',
@@ -403,8 +413,8 @@ async function createApp(dbOverride, statsOverride) {
       title: 'Política de privacidad y cookies | FuelTech Master',
       description: 'Qué datos recopila FuelTech Master, qué cookies usamos, cómo trabajan los anuncios de Google y terceros, y cómo puedes controlar o eliminar tu información.',
       h1: 'Política de privacidad y cookies',
-      html: `${p(`<em style="color:#979EA7">Última actualización: ${LEGAL_UPDATED}</em>`)}
-        ${p(`Esta política explica qué datos trata FuelTech Master (“el sitio”), operado por ${esc(SITE_OWNER)}, cuando visitas ${esc(BASE_URL)}. Para cualquier consulta sobre este documento, escribe a <a href="mailto:${esc(CONTACT_EMAIL)}" style="color:#E53935">${esc(CONTACT_EMAIL)}</a>.`)}
+      html: `${p(`<em style="color:var(--muted)">Última actualización: ${LEGAL_UPDATED}</em>`)}
+        ${p(`Esta política explica qué datos trata FuelTech Master (“el sitio”), operado por ${esc(SITE_OWNER)}, cuando visitas ${esc(BASE_URL)}. Para cualquier consulta sobre este documento, escribe a <a href="mailto:${esc(CONTACT_EMAIL)}" style="color:var(--accent)">${esc(CONTACT_EMAIL)}</a>.`)}
 
         ${h2('1. Qué datos recopilamos')}
         ${ul([
@@ -429,8 +439,8 @@ async function createApp(dbOverride, statsOverride) {
         ${ul([
           'Proveedores externos, incluido Google, utilizan cookies para publicar anuncios basados en visitas anteriores del usuario a este u otros sitios web.',
           'El uso por parte de Google de cookies publicitarias le permite a él y a sus socios publicar anuncios basados en tus visitas a este y otros sitios.',
-          `Puedes inhabilitar la publicidad personalizada en la <a href="https://www.google.com/settings/ads" rel="noopener nofollow" target="_blank" style="color:#E53935">Configuración de anuncios de Google</a>. También puedes desactivar el uso de cookies de otros proveedores en <a href="https://www.aboutads.info/choices/" rel="noopener nofollow" target="_blank" style="color:#E53935">aboutads.info</a> o <a href="https://www.youronlinechoices.com/" rel="noopener nofollow" target="_blank" style="color:#E53935">youronlinechoices.com</a>.`,
-          'Los terceros que muestran anuncios en este sitio pueden recopilar tu dirección IP, identificadores de dispositivo y datos de navegación conforme a sus propias políticas. Consulta cómo <a href="https://policies.google.com/technologies/partner-sites" rel="noopener nofollow" target="_blank" style="color:#E53935">Google utiliza la información de los sitios que usan sus servicios</a>.'
+          `Puedes inhabilitar la publicidad personalizada en la <a href="https://www.google.com/settings/ads" rel="noopener nofollow" target="_blank" style="color:var(--accent)">Configuración de anuncios de Google</a>. También puedes desactivar el uso de cookies de otros proveedores en <a href="https://www.aboutads.info/choices/" rel="noopener nofollow" target="_blank" style="color:var(--accent)">aboutads.info</a> o <a href="https://www.youronlinechoices.com/" rel="noopener nofollow" target="_blank" style="color:var(--accent)">youronlinechoices.com</a>.`,
+          'Los terceros que muestran anuncios en este sitio pueden recopilar tu dirección IP, identificadores de dispositivo y datos de navegación conforme a sus propias políticas. Consulta cómo <a href="https://policies.google.com/technologies/partner-sites" rel="noopener nofollow" target="_blank" style="color:var(--accent)">Google utiliza la información de los sitios que usan sus servicios</a>.'
         ])}
         ${p('Si te encuentras en el Espacio Económico Europeo, Reino Unido o Suiza, los anuncios personalizados y las cookies no esenciales solo se activan si das tu consentimiento mediante el aviso que aparece al entrar, y puedes retirarlo en cualquier momento borrando los datos del sitio en tu navegador.')}
 
@@ -441,7 +451,7 @@ async function createApp(dbOverride, statsOverride) {
         ${p('Los conteos de visita agregados y las búsquedas sin resultado se conservan mientras sean útiles para mejorar el catálogo. Los comentarios permanecen publicados hasta que se solicite su eliminación o los retiremos por incumplir las normas de uso.')}
 
         ${h2('6. Tus derechos')}
-        ${p(`Puedes solicitar acceso, corrección o eliminación de la información que te concierna, así como la retirada de un comentario, escribiendo a <a href="mailto:${esc(CONTACT_EMAIL)}" style="color:#E53935">${esc(CONTACT_EMAIL)}</a>. Ten en cuenta que gran parte de los datos que tratamos son anónimos y puede que no seamos capaces de vincularlos a ti.`)}
+        ${p(`Puedes solicitar acceso, corrección o eliminación de la información que te concierna, así como la retirada de un comentario, escribiendo a <a href="mailto:${esc(CONTACT_EMAIL)}" style="color:var(--accent)">${esc(CONTACT_EMAIL)}</a>. Ten en cuenta que gran parte de los datos que tratamos son anónimos y puede que no seamos capaces de vincularlos a ti.`)}
 
         ${h2('7. Menores de edad')}
         ${p('El sitio está dirigido a profesionales y aficionados a la mecánica automotriz. No está dirigido a menores de 13 años y no recopilamos conscientemente información de ellos.')}
@@ -455,7 +465,7 @@ async function createApp(dbOverride, statsOverride) {
       title: 'Términos de uso y aviso técnico | FuelTech Master',
       description: 'Condiciones de uso de FuelTech Master, límites de responsabilidad sobre los datos técnicos publicados, normas para comentarios y propiedad intelectual.',
       h1: 'Términos de uso y aviso técnico',
-      html: `${p(`<em style="color:#979EA7">Última actualización: ${LEGAL_UPDATED}</em>`)}
+      html: `${p(`<em style="color:var(--muted)">Última actualización: ${LEGAL_UPDATED}</em>`)}
         ${p('Al usar FuelTech Master aceptas estas condiciones. Si no estás de acuerdo con ellas, no utilices el sitio.')}
 
         ${h2('1. Aviso técnico importante')}
@@ -480,13 +490,13 @@ async function createApp(dbOverride, statsOverride) {
           'Spam, publicidad no solicitada o enlaces de afiliación.',
           'Contenido ofensivo, ilegal, o que infrinja derechos de terceros.'
         ])}
-        ${p(`Moderamos y podemos eliminar cualquier comentario sin previo aviso. Para reportar uno, escribe a <a href="mailto:${esc(CONTACT_EMAIL)}" style="color:#E53935">${esc(CONTACT_EMAIL)}</a>.`)}
+        ${p(`Moderamos y podemos eliminar cualquier comentario sin previo aviso. Para reportar uno, escribe a <a href="mailto:${esc(CONTACT_EMAIL)}" style="color:var(--accent)">${esc(CONTACT_EMAIL)}</a>.`)}
 
         ${h2('5. Propiedad intelectual y marcas')}
         ${p('El diseño, los textos y la organización del catálogo son propiedad de sus autores. Puedes consultar y compartir enlaces libremente; no está permitida la reproducción masiva ni el raspado automatizado del contenido. Las marcas de vehículos y de autopartes citadas pertenecen a sus respectivos titulares y se mencionan solo con fines de identificación técnica; el sitio no está afiliado a ellas.')}
 
         ${h2('6. Publicidad')}
-        ${p('El sitio muestra anuncios de terceros para sostener su operación. No controlamos el contenido de esos anuncios ni respaldamos los productos anunciados, y no somos responsables de las transacciones que realices con los anunciantes. El tratamiento de datos publicitarios se describe en la <a href="/privacidad" style="color:#E53935">política de privacidad</a>.')}
+        ${p('El sitio muestra anuncios de terceros para sostener su operación. No controlamos el contenido de esos anuncios ni respaldamos los productos anunciados, y no somos responsables de las transacciones que realices con los anunciantes. El tratamiento de datos publicitarios se describe en la <a href="/privacidad" style="color:var(--accent)">política de privacidad</a>.')}
 
         ${h2('7. Enlaces externos')}
         ${p('Podemos enlazar a sitios de terceros por conveniencia. No controlamos su contenido ni sus prácticas de privacidad.')}`
@@ -498,8 +508,8 @@ async function createApp(dbOverride, statsOverride) {
     ['/acerca-de', 'Acerca de'], ['/contacto', 'Contacto'],
     ['/privacidad', 'Privacidad y cookies'], ['/terminos', 'Términos y aviso técnico']
   ];
-  const legalFooter = () => `<footer style="max-width:820px;margin:36px auto 0;padding:20px 22px 40px;border-top:1px solid rgba(74,85,98,.35);color:#979EA7;font:400 12px/1.9 Montserrat,system-ui,sans-serif">
-      <p style="margin-bottom:6px">${LEGAL_LINKS.map(([href, label]) => `<a href="${href}" style="color:#979EA7">${label}</a>`).join(' · ')}</p>
+  const legalFooter = () => `<footer style="max-width:820px;margin:36px auto 0;padding:20px 22px 40px;border-top:1px solid var(--border);color:var(--muted);font:400 12px/1.9 Montserrat,system-ui,sans-serif">
+      <p style="margin-bottom:6px">${LEGAL_LINKS.map(([href, label]) => `<a href="${href}" style="color:var(--muted)">${label}</a>`).join(' · ')}</p>
       <p>Datos técnicos de referencia: verifica siempre contra el manual de servicio del fabricante antes de intervenir el vehículo.</p>
       <p style="margin-top:6px">© 2025–2026 ${esc(SITE_OWNER)}.</p>
     </footer>`;
@@ -510,8 +520,8 @@ async function createApp(dbOverride, statsOverride) {
     res.set('Cache-Control', 'public, max-age=3600');
     res.type('html').send(renderShell({
       title: pg.title, description: pg.description, canonicalPath: '/' + pg.slug, nonce: res.locals.cspNonce,
-      rootContent: `<main style="max-width:820px;margin:0 auto;padding:40px 22px 0;color:#E5E7EB;font-family:Montserrat,system-ui,sans-serif;line-height:1.7">
-        <p style="font:700 11px/1 sans-serif;letter-spacing:2px;text-transform:uppercase;color:#979EA7"><a href="/" style="color:#979EA7;text-decoration:none">FuelTech Master</a></p>
+      rootContent: `<main style="max-width:820px;margin:0 auto;padding:40px 22px 0;color:var(--text);font-family:Montserrat,system-ui,sans-serif;line-height:1.7">
+        ${BRAND_LOCKUP}
         <h1 style="font-size:26px;margin:10px 0 18px">${pg.h1}</h1>
         ${pg.html}
       </main>`
@@ -528,8 +538,8 @@ async function createApp(dbOverride, statsOverride) {
       title: '7 síntomas de una bomba de gasolina fallando (y cómo confirmarlo) | FuelTech Master',
       description: 'Aprende a reconocer una bomba (pila) de gasolina que se está muriendo: arranque difícil en caliente, jaloneo, pérdida de potencia, zumbido del tanque y más. Guía para mecánicos.',
       h1: '7 síntomas de una bomba de gasolina fallando',
-      html: `<p style="color:#B7BFC9">Una bomba (pila) de gasolina desgastada rara vez muere de golpe: primero da avisos. Reconocerlos a tiempo evita dejar tirado al cliente y apunta el diagnóstico hacia la presión de combustible.</p>
-        <h2 style="font-size:17px;color:#E53935;margin-top:22px">Los 7 síntomas más comunes</h2>
+      html: `<p style="color:var(--text-alt)">Una bomba (pila) de gasolina desgastada rara vez muere de golpe: primero da avisos. Reconocerlos a tiempo evita dejar tirado al cliente y apunta el diagnóstico hacia la presión de combustible.</p>
+        <h2 style="font-size:17px;color:var(--accent);margin-top:22px">Los 7 síntomas más comunes</h2>
         <ol style="padding-left:20px">
           <li><strong>Arranque difícil en caliente.</strong> Con el motor caliente tarda en encender: la bomba ya no sostiene presión residual.</li>
           <li><strong>Jaloneo y pérdida de potencia en subidas o al acelerar a fondo.</strong> El motor pide más flujo del que la bomba puede dar.</li>
@@ -539,8 +549,8 @@ async function createApp(dbOverride, statsOverride) {
           <li><strong>Apagones intermitentes</strong> en ralentí o en marcha, con reencendido posterior.</li>
           <li><strong>Mayor consumo o marcha irregular</strong> por presión fuera de especificación.</li>
         </ol>
-        <h2 style="font-size:17px;color:#E53935;margin-top:22px">Cómo confirmarlo (no adivines)</h2>
-        <p style="color:#B7BFC9">Todos estos síntomas también los provoca un filtro tapado, un regulador defectuoso o una caída de voltaje en el circuito. La única forma de confirmar es <a href="/guia/como-medir-la-presion-de-combustible" style="color:#E53935">medir la presión de combustible</a> y compararla con la <a href="/vehiculos" style="color:#E53935">especificación de tu vehículo</a>. Consulta siempre el manual de servicio antes de reemplazar.</p>`,
+        <h2 style="font-size:17px;color:var(--accent);margin-top:22px">Cómo confirmarlo (no adivines)</h2>
+        <p style="color:var(--text-alt)">Todos estos síntomas también los provoca un filtro tapado, un regulador defectuoso o una caída de voltaje en el circuito. La única forma de confirmar es <a href="/guia/como-medir-la-presion-de-combustible" style="color:var(--accent)">medir la presión de combustible</a> y compararla con la <a href="/vehiculos" style="color:var(--accent)">especificación de tu vehículo</a>. Consulta siempre el manual de servicio antes de reemplazar.</p>`,
       faq: [
         { q: '¿Cuáles son los síntomas de una bomba de gasolina fallando?', a: 'Arranque difícil en caliente, jaloneo y pérdida de potencia al acelerar, tirones a velocidad constante, zumbido desde el tanque, apagones intermitentes y, en el peor caso, que el motor no arranque.' },
         { q: '¿Cómo sé si es la bomba o el filtro?', a: 'Los síntomas son iguales; hay que medir la presión de combustible con manómetro y compararla contra la especificación del vehículo. Un filtro/cedazo tapado también baja la presión.' }
@@ -552,8 +562,8 @@ async function createApp(dbOverride, statsOverride) {
       title: 'Cómo medir la presión de combustible paso a paso (con manómetro) | FuelTech Master',
       description: 'Guía práctica para medir la presión de riel/combustible con manómetro: alivio de presión, conexión, lectura con llave ON, en ralentí y prueba de retención. Valores esperados por vehículo.',
       h1: 'Cómo medir la presión de combustible (paso a paso)',
-      html: `<p style="color:#B7BFC9">Medir la presión es lo que separa el diagnóstico de la adivinanza. Necesitas un <strong>manómetro de combustible</strong> con los adaptadores adecuados y tomar precauciones: la gasolina está a presión.</p>
-        <h2 style="font-size:17px;color:#E53935;margin-top:22px">Paso a paso</h2>
+      html: `<p style="color:var(--text-alt)">Medir la presión es lo que separa el diagnóstico de la adivinanza. Necesitas un <strong>manómetro de combustible</strong> con los adaptadores adecuados y tomar precauciones: la gasolina está a presión.</p>
+        <h2 style="font-size:17px;color:var(--accent);margin-top:22px">Paso a paso</h2>
         <ol style="padding-left:20px">
           <li><strong>Alivia la presión</strong> del sistema antes de abrir nada (fusible de la bomba y arrancar hasta que se apague, o válvula Schrader si existe).</li>
           <li><strong>Conecta el manómetro</strong> en el puerto de prueba (Schrader) del riel, o en línea con adaptador en T si no hay puerto.</li>
@@ -561,8 +571,8 @@ async function createApp(dbOverride, statsOverride) {
           <li><strong>Arranca y lee en ralentí:</strong> compara con la especificación. En sistemas con retorno, al desconectar el vacío del regulador la presión debe subir.</li>
           <li><strong>Prueba de retención:</strong> apaga y observa cuánto tarda en caer. Una caída rápida indica bomba, check, regulador o inyector con fuga.</li>
         </ol>
-        <h2 style="font-size:17px;color:#E53935;margin-top:22px">¿Qué presión debe tener?</h2>
-        <p style="color:#B7BFC9">Depende del vehículo y del tipo de inyección (TBI, MFI, Vortec, GDI). Busca el valor exacto de tu auto en el <a href="/vehiculos" style="color:#E53935">catálogo</a>. Si estás por debajo del rango, revisa <a href="/guia/presion-de-combustible-baja" style="color:#E53935">las causas de presión baja</a>.</p>`,
+        <h2 style="font-size:17px;color:var(--accent);margin-top:22px">¿Qué presión debe tener?</h2>
+        <p style="color:var(--text-alt)">Depende del vehículo y del tipo de inyección (TBI, MFI, Vortec, GDI). Busca el valor exacto de tu auto en el <a href="/vehiculos" style="color:var(--accent)">catálogo</a>. Si estás por debajo del rango, revisa <a href="/guia/presion-de-combustible-baja" style="color:var(--accent)">las causas de presión baja</a>.</p>`,
       faq: [
         { q: '¿Dónde se conecta el manómetro de presión de combustible?', a: 'En el puerto de prueba (válvula Schrader) del riel de inyectores si existe, o en línea con un adaptador en T. Antes hay que aliviar la presión del sistema.' },
         { q: '¿Qué presión de combustible es normal?', a: 'Varía por vehículo y tipo de inyección. Consulta el valor exacto de tu modelo en el catálogo de FuelTech Master y compáralo con tu lectura.' }
@@ -574,8 +584,8 @@ async function createApp(dbOverride, statsOverride) {
       title: 'Presión de combustible baja: causas y cómo diagnosticarla | FuelTech Master',
       description: 'Presión de riel por debajo de especificación: bomba desgastada, cedazo/filtro tapado, regulador, caída de voltaje en el circuito, líneas obstruidas o fugas. Cómo diagnosticar cada causa.',
       h1: 'Presión de combustible baja: causas y diagnóstico',
-      html: `<p style="color:#B7BFC9">Mediste y estás por debajo del rango. Antes de condenar la bomba, descarta en orden estas causas — varias son más baratas y comunes.</p>
-        <h2 style="font-size:17px;color:#E53935;margin-top:22px">Causas más frecuentes</h2>
+      html: `<p style="color:var(--text-alt)">Mediste y estás por debajo del rango. Antes de condenar la bomba, descarta en orden estas causas — varias son más baratas y comunes.</p>
+        <h2 style="font-size:17px;color:var(--accent);margin-top:22px">Causas más frecuentes</h2>
         <ul style="padding-left:20px">
           <li><strong>Cedazo o filtro de combustible tapado.</strong> Restringe el flujo; es lo primero y más barato a revisar.</li>
           <li><strong>Bomba (pila) desgastada.</strong> Ya no alcanza la presión ni el flujo; se confirma con prueba de flujo y presión muerta (deadhead).</li>
@@ -583,8 +593,8 @@ async function createApp(dbOverride, statsOverride) {
           <li><strong>Caída de voltaje en el circuito de la bomba.</strong> Un cable/relé/conector con resistencia hace que la bomba gire lento y dé menos presión. Mide voltaje en el conector con la bomba trabajando.</li>
           <li><strong>Líneas obstruidas o aplastadas / fuga.</strong> Restricción o pérdida en el camino al riel.</li>
         </ul>
-        <h2 style="font-size:17px;color:#E53935;margin-top:22px">El orden correcto</h2>
-        <p style="color:#B7BFC9">Mide voltaje en la bomba antes de cambiarla: muchas bombas "malas" en realidad reciben voltaje bajo. Luego descarta cedazo/filtro y regulador. Compara siempre contra la <a href="/vehiculos" style="color:#E53935">especificación de tu vehículo</a> y consulta el manual de servicio.</p>`,
+        <h2 style="font-size:17px;color:var(--accent);margin-top:22px">El orden correcto</h2>
+        <p style="color:var(--text-alt)">Mide voltaje en la bomba antes de cambiarla: muchas bombas "malas" en realidad reciben voltaje bajo. Luego descarta cedazo/filtro y regulador. Compara siempre contra la <a href="/vehiculos" style="color:var(--accent)">especificación de tu vehículo</a> y consulta el manual de servicio.</p>`,
       faq: [
         { q: '¿Por qué la presión de combustible está baja?', a: 'Las causas más comunes son: cedazo/filtro tapado, bomba desgastada, regulador defectuoso, caída de voltaje en el circuito de la bomba, y líneas obstruidas o con fuga.' },
         { q: '¿Cómo saber si es la bomba o un problema eléctrico?', a: 'Mide el voltaje en el conector de la bomba mientras trabaja. Si el voltaje es bajo, el problema es del circuito (cable, relé, conector), no de la bomba.' }
@@ -596,15 +606,15 @@ async function createApp(dbOverride, statsOverride) {
       title: 'Presión de combustible alta: causas, síntomas y diagnóstico | FuelTech Master',
       description: 'Presión de riel por encima de especificación: retorno obstruido, regulador trabado, vacío desconectado o bomba sin control. Síntomas de mezcla rica y cómo diagnosticar cada causa.',
       h1: 'Presión de combustible alta: causas y diagnóstico',
-      html: `<p style="color:#B7BFC9">Se habla mucho de presión baja y casi nada de presión alta, pero es igual de dañina: con exceso de presión los inyectores entregan más combustible del que la computadora calcula, y el motor trabaja rico sin que aparezca una falla evidente al principio.</p>
-        <h2 style="font-size:17px;color:#E53935;margin-top:22px">Cómo se manifiesta</h2>
+      html: `<p style="color:var(--text-alt)">Se habla mucho de presión baja y casi nada de presión alta, pero es igual de dañina: con exceso de presión los inyectores entregan más combustible del que la computadora calcula, y el motor trabaja rico sin que aparezca una falla evidente al principio.</p>
+        <h2 style="font-size:17px;color:var(--accent);margin-top:22px">Cómo se manifiesta</h2>
         <ul style="padding-left:20px">
           <li><strong>Consumo elevado</strong> sin causa aparente y olor a gasolina en el escape.</li>
           <li><strong>Humo negro</strong> y códigos de mezcla rica (P0172 / P0175) o de banda de combustible negativa.</li>
           <li><strong>Marcha irregular en frío</strong>, tirones y, con el tiempo, bujías carbonizadas y catalizador dañado.</li>
           <li><strong>Arranque difícil en caliente</strong> por exceso de combustible en el múltiple.</li>
         </ul>
-        <h2 style="font-size:17px;color:#E53935;margin-top:22px">Causas más frecuentes</h2>
+        <h2 style="font-size:17px;color:var(--accent);margin-top:22px">Causas más frecuentes</h2>
         <ul style="padding-left:20px">
           <li><strong>Línea de retorno obstruida o aplastada.</strong> En sistemas con retorno, si el combustible no puede volver al tanque la presión sube. Es la causa número uno.</li>
           <li><strong>Regulador de presión trabado en cerrado.</strong> No permite el desahogo; se confirma comparando la lectura con y sin vacío.</li>
@@ -612,9 +622,9 @@ async function createApp(dbOverride, statsOverride) {
           <li><strong>Filtro instalado al revés</strong> o de aplicación incorrecta, restringiendo el retorno.</li>
           <li><strong>Módulo o bomba de repuesto con regulación distinta a la original.</strong> Muy común al montar una pila genérica: entrega más presión de la que el sistema espera.</li>
         </ul>
-        <h2 style="font-size:17px;color:#E53935;margin-top:22px">El orden de diagnóstico</h2>
-        <p style="color:#B7BFC9">Con el manómetro conectado y el motor en ralentí, desconecta la manguera de vacío del regulador: la presión debe subir unos 5–10 PSI. Si no cambia nada, el regulador o su señal de vacío están en falla. Después pincha o desconecta con cuidado la línea de retorno para ver si la presión reacciona; si no baja, la restricción está en el retorno. Contrasta siempre la lectura con el <a href="/vehiculos" style="color:#E53935">valor de tu vehículo</a>: “alta” significa por encima del rango de ese modelo, no de un número general.</p>
-        <p style="color:#B7BFC9">En motores de <a href="/guia/inyeccion-gdi-vs-mfi-presion" style="color:#E53935">inyección directa (GDI)</a> el diagnóstico es distinto: la presión la controla la ECU y una lectura alta suele ser un problema de sensor o de mando, no mecánico.</p>`,
+        <h2 style="font-size:17px;color:var(--accent);margin-top:22px">El orden de diagnóstico</h2>
+        <p style="color:var(--text-alt)">Con el manómetro conectado y el motor en ralentí, desconecta la manguera de vacío del regulador: la presión debe subir unos 5–10 PSI. Si no cambia nada, el regulador o su señal de vacío están en falla. Después pincha o desconecta con cuidado la línea de retorno para ver si la presión reacciona; si no baja, la restricción está en el retorno. Contrasta siempre la lectura con el <a href="/vehiculos" style="color:var(--accent)">valor de tu vehículo</a>: “alta” significa por encima del rango de ese modelo, no de un número general.</p>
+        <p style="color:var(--text-alt)">En motores de <a href="/guia/inyeccion-gdi-vs-mfi-presion" style="color:var(--accent)">inyección directa (GDI)</a> el diagnóstico es distinto: la presión la controla la ECU y una lectura alta suele ser un problema de sensor o de mando, no mecánico.</p>`,
       faq: [
         { q: '¿Qué pasa si la presión de combustible es muy alta?', a: 'Los inyectores entregan más combustible del calculado y el motor trabaja rico: aumenta el consumo, aparece humo negro, códigos P0172/P0175, bujías carbonizadas y a la larga se daña el catalizador.' },
         { q: '¿Por qué sube la presión de combustible?', a: 'Las causas más comunes son línea de retorno obstruida, regulador de presión trabado en cerrado, manguera de vacío del regulador desconectada o rota, filtro mal instalado y bombas o módulos de repuesto con regulación distinta a la original.' }
@@ -626,21 +636,21 @@ async function createApp(dbOverride, statsOverride) {
       title: 'Regulador de presión de combustible: cómo funciona y cómo probarlo | FuelTech Master',
       description: 'Qué hace el regulador de presión, diferencias entre sistemas con y sin retorno, y tres pruebas para saber si está fallando antes de cambiarlo.',
       h1: 'Regulador de presión de combustible: cómo probarlo',
-      html: `<p style="color:#B7BFC9">El regulador es el componente que decide a qué presión llega el combustible a los inyectores. La bomba siempre empuja de más; el regulador desahoga el sobrante para mantener el valor correcto. Cuando falla, la presión se va por arriba o por abajo y el diagnóstico se confunde fácilmente con una bomba muerta.</p>
-        <h2 style="font-size:17px;color:#E53935;margin-top:22px">Con retorno y sin retorno</h2>
+      html: `<p style="color:var(--text-alt)">El regulador es el componente que decide a qué presión llega el combustible a los inyectores. La bomba siempre empuja de más; el regulador desahoga el sobrante para mantener el valor correcto. Cuando falla, la presión se va por arriba o por abajo y el diagnóstico se confunde fácilmente con una bomba muerta.</p>
+        <h2 style="font-size:17px;color:var(--accent);margin-top:22px">Con retorno y sin retorno</h2>
         <ul style="padding-left:20px">
           <li><strong>Con retorno (sistemas más antiguos).</strong> El regulador va en el riel y devuelve el sobrante al tanque por una segunda línea. Suele tener una manguera de vacío del múltiple: al acelerar cae el vacío y la presión sube, compensando la carga del motor.</li>
           <li><strong>Sin retorno (returnless, la mayoría de los modernos).</strong> El regulador está dentro del módulo, en el tanque. No hay línea de retorno ni manguera de vacío, y la presión se mantiene constante. Aquí el regulador casi nunca se vende suelto: viene integrado en el módulo.</li>
         </ul>
-        <p style="color:#B7BFC9">Saber cuál tiene el vehículo cambia por completo la prueba. Consulta la ficha de tu modelo en el <a href="/vehiculos" style="color:#E53935">catálogo</a> antes de buscar un regulador que quizá no exista por separado.</p>
-        <h2 style="font-size:17px;color:#E53935;margin-top:22px">Tres pruebas concretas</h2>
+        <p style="color:var(--text-alt)">Saber cuál tiene el vehículo cambia por completo la prueba. Consulta la ficha de tu modelo en el <a href="/vehiculos" style="color:var(--accent)">catálogo</a> antes de buscar un regulador que quizá no exista por separado.</p>
+        <h2 style="font-size:17px;color:var(--accent);margin-top:22px">Tres pruebas concretas</h2>
         <ol style="padding-left:20px">
           <li><strong>Prueba de vacío (solo con retorno).</strong> Con el motor en ralentí y el manómetro conectado, desconecta la manguera de vacío del regulador. La presión debe subir de inmediato unos 5–10 PSI. Si no se mueve, el regulador está trabado o el diafragma está roto.</li>
           <li><strong>Prueba de gasolina en la manguera de vacío.</strong> Quita la manguera y mírala por dentro. Si tiene combustible o huele a gasolina, el diafragma del regulador está perforado y está mandando combustible al múltiple: cámbialo.</li>
           <li><strong>Prueba de retención.</strong> Apaga el motor y observa el manómetro. Una caída rápida indica fuga por el regulador, por la válvula check de la bomba o por un inyector. Pinza la línea de retorno: si la presión ahora se sostiene, el que fuga es el regulador.</li>
         </ol>
-        <h2 style="font-size:17px;color:#E53935;margin-top:22px">Antes de cambiarlo</h2>
-        <p style="color:#B7BFC9">Un regulador defectuoso y un <a href="/guia/presion-de-combustible-baja" style="color:#E53935">cedazo tapado</a> dan lecturas parecidas. Descarta primero filtro y <a href="/guia/voltaje-circuito-bomba-de-gasolina" style="color:#E53935">voltaje en el circuito de la bomba</a>, que son más baratos de revisar, y compara siempre contra la especificación del fabricante.</p>`,
+        <h2 style="font-size:17px;color:var(--accent);margin-top:22px">Antes de cambiarlo</h2>
+        <p style="color:var(--text-alt)">Un regulador defectuoso y un <a href="/guia/presion-de-combustible-baja" style="color:var(--accent)">cedazo tapado</a> dan lecturas parecidas. Descarta primero filtro y <a href="/guia/voltaje-circuito-bomba-de-gasolina" style="color:var(--accent)">voltaje en el circuito de la bomba</a>, que son más baratos de revisar, y compara siempre contra la especificación del fabricante.</p>`,
       faq: [
         { q: '¿Cómo saber si el regulador de presión de combustible está malo?', a: 'Desconecta su manguera de vacío con el motor en ralentí: la presión debe subir 5–10 PSI. Si no cambia, o si encuentras gasolina dentro de la manguera de vacío, el regulador está fallando.' },
         { q: '¿Dónde está el regulador de presión de combustible?', a: 'En sistemas con retorno va en el riel de inyectores, con una manguera de vacío conectada. En sistemas sin retorno está integrado dentro del módulo, en el tanque, y normalmente se reemplaza junto con el módulo completo.' }
@@ -652,17 +662,17 @@ async function createApp(dbOverride, statsOverride) {
       title: 'Voltaje y caída de tensión en el circuito de la bomba de gasolina | FuelTech Master',
       description: 'Cómo medir voltaje y caída de tensión en el circuito de la bomba de combustible, por qué una bomba buena entrega poca presión y cómo revisar relé, tierra y conectores.',
       h1: 'Voltaje en el circuito de la bomba: la prueba que evita cambios innecesarios',
-      html: `<p style="color:#B7BFC9">Muchas bombas devueltas como “defectuosas” estaban perfectamente bien: recibían 9 voltios en lugar de 12. Una bomba alimentada con voltaje bajo gira lento, entrega menos presión y menos flujo, y da exactamente los mismos síntomas que una bomba desgastada. Esta prueba toma cinco minutos y evita tirar el dinero.</p>
-        <h2 style="font-size:17px;color:#E53935;margin-top:22px">Medir voltaje en el conector</h2>
-        <p style="color:#B7BFC9">Con el multímetro en voltaje DC, mide entre el positivo y la tierra del conector de la bomba <strong>mientras la bomba está trabajando</strong> (llave en ON los primeros segundos, o con el motor encendido). Una medición con la bomba apagada no sirve de nada: el problema aparece solo bajo carga.</p>
+      html: `<p style="color:var(--text-alt)">Muchas bombas devueltas como “defectuosas” estaban perfectamente bien: recibían 9 voltios en lugar de 12. Una bomba alimentada con voltaje bajo gira lento, entrega menos presión y menos flujo, y da exactamente los mismos síntomas que una bomba desgastada. Esta prueba toma cinco minutos y evita tirar el dinero.</p>
+        <h2 style="font-size:17px;color:var(--accent);margin-top:22px">Medir voltaje en el conector</h2>
+        <p style="color:var(--text-alt)">Con el multímetro en voltaje DC, mide entre el positivo y la tierra del conector de la bomba <strong>mientras la bomba está trabajando</strong> (llave en ON los primeros segundos, o con el motor encendido). Una medición con la bomba apagada no sirve de nada: el problema aparece solo bajo carga.</p>
         <ul style="padding-left:20px">
           <li><strong>Menos de 0.5 V de diferencia</strong> respecto al voltaje de batería: circuito sano.</li>
           <li><strong>Entre 0.5 y 1 V de diferencia:</strong> hay resistencia, conviene revisar conectores y tierra.</li>
           <li><strong>Más de 1 V de diferencia:</strong> falla clara en el circuito. No cambies la bomba todavía.</li>
         </ul>
-        <h2 style="font-size:17px;color:#E53935;margin-top:22px">Prueba de caída de tensión</h2>
-        <p style="color:#B7BFC9">Es la forma correcta de localizar dónde se pierde el voltaje. Con el circuito energizado y la bomba trabajando, pon las puntas del multímetro en los dos extremos del tramo que sospechas (por ejemplo, positivo de batería y positivo del conector de la bomba). Lo que marque el multímetro es lo que ese tramo se está “comiendo”. Repite del lado de tierra: entre el negativo de batería y el pin de tierra de la bomba no deberías tener más de 0.2 V.</p>
-        <h2 style="font-size:17px;color:#E53935;margin-top:22px">Dónde suele estar la falla</h2>
+        <h2 style="font-size:17px;color:var(--accent);margin-top:22px">Prueba de caída de tensión</h2>
+        <p style="color:var(--text-alt)">Es la forma correcta de localizar dónde se pierde el voltaje. Con el circuito energizado y la bomba trabajando, pon las puntas del multímetro en los dos extremos del tramo que sospechas (por ejemplo, positivo de batería y positivo del conector de la bomba). Lo que marque el multímetro es lo que ese tramo se está “comiendo”. Repite del lado de tierra: entre el negativo de batería y el pin de tierra de la bomba no deberías tener más de 0.2 V.</p>
+        <h2 style="font-size:17px;color:var(--accent);margin-top:22px">Dónde suele estar la falla</h2>
         <ul style="padding-left:20px">
           <li><strong>Conector de la bomba quemado o con los pines flojos.</strong> Es el sospechoso más común, sobre todo si el vehículo ya tuvo un cambio de bomba antes.</li>
           <li><strong>Relé de la bomba con contactos picados.</strong> Prueba puenteando o sustituyendo por un relé idéntico del mismo vehículo.</li>
@@ -670,8 +680,8 @@ async function createApp(dbOverride, statsOverride) {
           <li><strong>Empalmes anteriores mal hechos</strong>, cinta en lugar de soldadura, o cable de calibre menor al original.</li>
           <li><strong>Fusible con corrosión</strong> en el portafusible, que mide continuidad pero cae bajo carga.</li>
         </ul>
-        <h2 style="font-size:17px;color:#E53935;margin-top:22px">La secuencia que funciona</h2>
-        <p style="color:#B7BFC9">Mide <a href="/guia/como-medir-la-presion-de-combustible" style="color:#E53935">presión de combustible</a> primero. Si está baja, mide voltaje en la bomba antes de desarmar el tanque. Si el voltaje es correcto y la presión sigue baja, entonces sí revisa <a href="/guia/presion-de-combustible-baja" style="color:#E53935">cedazo, filtro y regulador</a>, y por último la bomba. Cambiar una bomba en un circuito con caída de tensión solo repite la falla: la bomba nueva también trabajará forzada y durará menos.</p>`,
+        <h2 style="font-size:17px;color:var(--accent);margin-top:22px">La secuencia que funciona</h2>
+        <p style="color:var(--text-alt)">Mide <a href="/guia/como-medir-la-presion-de-combustible" style="color:var(--accent)">presión de combustible</a> primero. Si está baja, mide voltaje en la bomba antes de desarmar el tanque. Si el voltaje es correcto y la presión sigue baja, entonces sí revisa <a href="/guia/presion-de-combustible-baja" style="color:var(--accent)">cedazo, filtro y regulador</a>, y por último la bomba. Cambiar una bomba en un circuito con caída de tensión solo repite la falla: la bomba nueva también trabajará forzada y durará menos.</p>`,
       faq: [
         { q: '¿Cuánto voltaje debe llegar a la bomba de gasolina?', a: 'Prácticamente el mismo que el de la batería. Con la bomba trabajando, la diferencia entre el voltaje de batería y el que llega al conector no debe superar 0.5 V; más de 1 V indica una falla en el circuito.' },
         { q: '¿Por qué una bomba nueva sigue dando presión baja?', a: 'Casi siempre por caída de tensión en el circuito: conector quemado, relé con contactos picados, tierra oxidada o un empalme mal hecho. La bomba gira lento y entrega menos presión aunque esté nueva.' }
@@ -683,22 +693,22 @@ async function createApp(dbOverride, statsOverride) {
       title: 'GDI vs MFI: por qué la presión de combustible no se mide igual | FuelTech Master',
       description: 'Diferencias entre inyección directa (GDI) e inyección a puerto (MFI/TBI): presiones de trabajo, bomba de baja y de alta, y qué precauciones tomar al diagnosticar cada sistema.',
       h1: 'GDI vs MFI: por qué la presión no se mide igual',
-      html: `<p style="color:#B7BFC9">Conectar un manómetro convencional a un motor de inyección directa es un error que se paga caro. Los sistemas GDI trabajan con presiones cientos de veces mayores y con un circuito completamente distinto. Antes de tocar nada, hay que saber qué sistema tienes enfrente.</p>
-        <h2 style="font-size:17px;color:#E53935;margin-top:22px">Inyección a puerto: TBI y MFI</h2>
-        <p style="color:#B7BFC9">El inyector rocía en el múltiple de admisión, antes de la válvula. Una sola bomba eléctrica en el tanque genera toda la presión del sistema, que se mantiene en un rango bajo y constante: por lo general entre 30 y 60 PSI según el modelo, y menos aún en los TBI antiguos. Es el sistema para el que sirve el manómetro clásico con adaptadores, y el que cubren la mayoría de las fichas del catálogo.</p>
-        <h2 style="font-size:17px;color:#E53935;margin-top:22px">Inyección directa: GDI</h2>
-        <p style="color:#B7BFC9">El inyector rocía dentro de la cámara de combustión, contra la presión de compresión, así que necesita muchísima más fuerza. El circuito tiene <strong>dos etapas</strong>:</p>
+      html: `<p style="color:var(--text-alt)">Conectar un manómetro convencional a un motor de inyección directa es un error que se paga caro. Los sistemas GDI trabajan con presiones cientos de veces mayores y con un circuito completamente distinto. Antes de tocar nada, hay que saber qué sistema tienes enfrente.</p>
+        <h2 style="font-size:17px;color:var(--accent);margin-top:22px">Inyección a puerto: TBI y MFI</h2>
+        <p style="color:var(--text-alt)">El inyector rocía en el múltiple de admisión, antes de la válvula. Una sola bomba eléctrica en el tanque genera toda la presión del sistema, que se mantiene en un rango bajo y constante: por lo general entre 30 y 60 PSI según el modelo, y menos aún en los TBI antiguos. Es el sistema para el que sirve el manómetro clásico con adaptadores, y el que cubren la mayoría de las fichas del catálogo.</p>
+        <h2 style="font-size:17px;color:var(--accent);margin-top:22px">Inyección directa: GDI</h2>
+        <p style="color:var(--text-alt)">El inyector rocía dentro de la cámara de combustión, contra la presión de compresión, así que necesita muchísima más fuerza. El circuito tiene <strong>dos etapas</strong>:</p>
         <ul style="padding-left:20px">
           <li><strong>Baja presión.</strong> La bomba eléctrica del tanque —la pila que sí puedes reemplazar— alimenta a la bomba de alta con un valor moderado, típicamente entre 50 y 90 PSI.</li>
           <li><strong>Alta presión.</strong> Una bomba mecánica accionada por el árbol de levas eleva la presión a valores que van de 500 a más de 2 500 PSI, controlados electrónicamente por la ECU según la carga.</li>
         </ul>
-        <p style="color:#B7BFC9">La etapa de alta <strong>no se mide con manómetro convencional</strong>: se lee con escáner, en el PID de presión de riel, comparando el valor deseado contra el valor real. Abrir esa parte del circuito con el motor caliente es peligroso.</p>
-        <h2 style="font-size:17px;color:#E53935;margin-top:22px">Qué significa esto al diagnosticar</h2>
+        <p style="color:var(--text-alt)">La etapa de alta <strong>no se mide con manómetro convencional</strong>: se lee con escáner, en el PID de presión de riel, comparando el valor deseado contra el valor real. Abrir esa parte del circuito con el motor caliente es peligroso.</p>
+        <h2 style="font-size:17px;color:var(--accent);margin-top:22px">Qué significa esto al diagnosticar</h2>
         <ul style="padding-left:20px">
           <li>En GDI, un arranque difícil o una pérdida de potencia puede venir de la bomba del tanque (baja) o de la bomba de alta. Empieza midiendo la baja, que es accesible y barata.</li>
           <li>Si la baja está en especificación y el escáner muestra que la presión real no alcanza la deseada, el problema está en la bomba de alta, su válvula de control o el lóbulo del árbol de levas que la acciona.</li>
           <li>Las pilas de repuesto para GDI deben cumplir el valor de baja presión exacto: una pila genérica de menor entrega deja sin alimentación a la bomba de alta y provoca fallas intermitentes difíciles de rastrear.</li>
-          <li>Nunca uses el rango de un motor MFI como referencia para uno GDI, ni al revés. En el <a href="/vehiculos" style="color:#E53935">catálogo</a> cada ficha indica el tipo de inyección junto al valor de presión, precisamente por esto.</li>
+          <li>Nunca uses el rango de un motor MFI como referencia para uno GDI, ni al revés. En el <a href="/vehiculos" style="color:var(--accent)">catálogo</a> cada ficha indica el tipo de inyección junto al valor de presión, precisamente por esto.</li>
         </ul>`,
       faq: [
         { q: '¿Cuál es la diferencia entre GDI y MFI?', a: 'En MFI el inyector rocía en el múltiple de admisión y una sola bomba del tanque genera toda la presión (30–60 PSI típicos). En GDI el inyector rocía dentro de la cámara y hay dos etapas: una bomba eléctrica de baja en el tanque y una bomba mecánica de alta accionada por el árbol de levas que llega a cientos o miles de PSI.' },
@@ -711,8 +721,8 @@ async function createApp(dbOverride, statsOverride) {
       title: 'Cómo cambiar la pila (bomba) de gasolina paso a paso | FuelTech Master',
       description: 'Procedimiento seguro para reemplazar una pila o módulo de gasolina: alivio de presión, acceso al tanque, cambio del cedazo, precauciones eléctricas y verificación final.',
       h1: 'Cómo cambiar la pila de gasolina paso a paso',
-      html: `<p style="color:#B7BFC9">Antes de empezar: confirma con el manómetro que la bomba es realmente la culpable. Una <a href="/guia/presion-de-combustible-baja" style="color:#E53935">presión baja</a> también la provoca un cedazo tapado, un regulador en falla o una <a href="/guia/voltaje-circuito-bomba-de-gasolina" style="color:#E53935">caída de voltaje</a>, y todas son más baratas de resolver.</p>
-        <h2 style="font-size:17px;color:#E53935;margin-top:22px">Seguridad primero</h2>
+      html: `<p style="color:var(--text-alt)">Antes de empezar: confirma con el manómetro que la bomba es realmente la culpable. Una <a href="/guia/presion-de-combustible-baja" style="color:var(--accent)">presión baja</a> también la provoca un cedazo tapado, un regulador en falla o una <a href="/guia/voltaje-circuito-bomba-de-gasolina" style="color:var(--accent)">caída de voltaje</a>, y todas son más baratas de resolver.</p>
+        <h2 style="font-size:17px;color:var(--accent);margin-top:22px">Seguridad primero</h2>
         <ul style="padding-left:20px">
           <li>Trabaja en área ventilada, sin llamas, chispas ni herramientas eléctricas cerca del tanque abierto.</li>
           <li>Ten un extintor a la mano. No es una formalidad.</li>
@@ -720,9 +730,9 @@ async function createApp(dbOverride, statsOverride) {
           <li>Desconecta el negativo de la batería antes de manipular el conector del módulo.</li>
           <li>Trabaja con el tanque lo más vacío posible: pesa menos y hay menos vapor.</li>
         </ul>
-        <h2 style="font-size:17px;color:#E53935;margin-top:22px">El procedimiento</h2>
+        <h2 style="font-size:17px;color:var(--accent);margin-top:22px">El procedimiento</h2>
         <ol style="padding-left:20px">
-          <li><strong>Localiza el acceso.</strong> Muchos vehículos tienen una tapa de registro bajo el asiento trasero o en el piso de la cajuela; otros obligan a bajar el tanque. La ficha de tu modelo en el <a href="/vehiculos" style="color:#E53935">catálogo</a> indica la ubicación del módulo.</li>
+          <li><strong>Localiza el acceso.</strong> Muchos vehículos tienen una tapa de registro bajo el asiento trasero o en el piso de la cajuela; otros obligan a bajar el tanque. La ficha de tu modelo en el <a href="/vehiculos" style="color:var(--accent)">catálogo</a> indica la ubicación del módulo.</li>
           <li><strong>Limpia alrededor de la tapa</strong> antes de abrirla. La tierra que cae dentro del tanque termina en el cedazo nuevo.</li>
           <li><strong>Desconecta el conector eléctrico y las líneas</strong> de alimentación y retorno. Marca cuál es cuál si no están codificadas.</li>
           <li><strong>Retira el anillo de seguridad</strong> con la herramienta adecuada o golpes suaves y controlados. Saca el módulo con cuidado: el brazo del flotador se dobla con nada.</li>
@@ -731,8 +741,8 @@ async function createApp(dbOverride, statsOverride) {
           <li><strong>Sustituye el empaque o junta del módulo.</strong> Reutilizar el viejo es la fuente habitual de olor a gasolina después del trabajo.</li>
           <li><strong>Monta, conecta y purga.</strong> Antes de arrancar, da varias veces llave a ON durante tres segundos para que la bomba llene el riel.</li>
         </ol>
-        <h2 style="font-size:17px;color:#E53935;margin-top:22px">Verificación final</h2>
-        <p style="color:#B7BFC9">Conecta el manómetro y confirma que la presión coincide con la especificación de tu vehículo, tanto con llave en ON como en ralentí. Haz una <a href="/guia/como-medir-la-presion-de-combustible" style="color:#E53935">prueba de retención</a> al apagar y revisa que no haya fugas en la tapa del módulo antes de devolver el vehículo. Consulta el manual de servicio del fabricante para pares de apriete y particularidades del modelo.</p>`,
+        <h2 style="font-size:17px;color:var(--accent);margin-top:22px">Verificación final</h2>
+        <p style="color:var(--text-alt)">Conecta el manómetro y confirma que la presión coincide con la especificación de tu vehículo, tanto con llave en ON como en ralentí. Haz una <a href="/guia/como-medir-la-presion-de-combustible" style="color:var(--accent)">prueba de retención</a> al apagar y revisa que no haya fugas en la tapa del módulo antes de devolver el vehículo. Consulta el manual de servicio del fabricante para pares de apriete y particularidades del modelo.</p>`,
       faq: [
         { q: '¿Hay que cambiar el cedazo al cambiar la bomba de gasolina?', a: 'Sí, siempre. El cedazo tapado hace que la bomba nueva trabaje forzada, entregue menos presión y dure mucho menos. Es una pieza barata y es parte del trabajo bien hecho.' },
         { q: '¿Cómo se alivia la presión antes de cambiar la bomba?', a: 'Quita el fusible o el relé de la bomba de combustible y arranca el motor hasta que se apague solo. Después desconecta el negativo de la batería antes de manipular el conector del módulo.' }
@@ -744,8 +754,8 @@ async function createApp(dbOverride, statsOverride) {
       title: 'Qué pila de gasolina le queda a mi carro: cómo elegir la correcta | FuelTech Master',
       description: 'Cómo elegir una pila o bomba de gasolina compatible: presión, flujo LPH, amperaje, medidas físicas, conector y polaridad. Qué mirar antes de comprar una alternativa genérica.',
       h1: 'Qué pila de gasolina le queda a mi carro',
-      html: `<p style="color:#B7BFC9">“¿Esta le queda?” es la pregunta que más se escucha en el mostrador de una refaccionaria. La respuesta corta: no basta con que entre. Una pila compatible tiene que coincidir en cinco cosas, y si falla una sola, el trabajo se devuelve.</p>
-        <h2 style="font-size:17px;color:#E53935;margin-top:22px">Los cinco criterios</h2>
+      html: `<p style="color:var(--text-alt)">“¿Esta le queda?” es la pregunta que más se escucha en el mostrador de una refaccionaria. La respuesta corta: no basta con que entre. Una pila compatible tiene que coincidir en cinco cosas, y si falla una sola, el trabajo se devuelve.</p>
+        <h2 style="font-size:17px;color:var(--accent);margin-top:22px">Los cinco criterios</h2>
         <ol style="padding-left:20px">
           <li><strong>Presión de trabajo.</strong> La pila debe sostener el rango que pide el vehículo con margen. Una bomba de 45 PSI en un sistema que exige 58 PSI da síntomas de falla desde el primer día.</li>
           <li><strong>Flujo (LPH).</strong> Litros por hora. Un motor más grande o con mayor demanda necesita más caudal aunque la presión sea la misma. Quedarse corto se nota solo bajo carga: en subida o a alta velocidad.</li>
@@ -753,33 +763,34 @@ async function createApp(dbOverride, statsOverride) {
           <li><strong>Medidas físicas y montaje.</strong> Diámetro, largo del cuerpo, posición de entrada y salida, y altura total dentro del módulo. Una pila más larga no deja cerrar la tapa; una más corta deja el pickup lejos del fondo y el motor se queda sin combustible con el tanque a un cuarto.</li>
           <li><strong>Conector y polaridad.</strong> Invertir la polaridad daña la bomba de inmediato. Si el conector no es el mismo, hay que confirmar cuál pin es positivo antes de improvisar un adaptador.</li>
         </ol>
-        <h2 style="font-size:17px;color:#E53935;margin-top:22px">Original, módulo completo o pila suelta</h2>
-        <p style="color:#B7BFC9">Cambiar solo la pila dentro del módulo es más barato y suele ser suficiente. Pero si el módulo tiene el regulador integrado en falla, la carcasa fisurada, el flotador dañado o el conector quemado, el módulo completo sale mejor a la larga. En sistemas <strong>sin retorno</strong>, donde el regulador vive dentro del módulo, muchas veces no hay alternativa.</p>
-        <h2 style="font-size:17px;color:#E53935;margin-top:22px">Sobre las equivalencias</h2>
-        <p style="color:#B7BFC9">En la ficha de cada vehículo del <a href="/vehiculos" style="color:#E53935">catálogo</a> encontrarás el número de parte original y las alternativas compatibles con su presión, flujo y amperaje. Úsalas como punto de partida y confirma la aplicación con el catálogo del fabricante antes de comprar: los proveedores actualizan aplicaciones y a veces un mismo modelo cambió de bomba a mitad de año de producción.</p>
-        <p style="color:#B7BFC9">Y una advertencia práctica: “universal” no significa compatible. Una pila universal puede dar la presión correcta y aun así fallar por medidas, conector o amperaje.</p>`,
+        <h2 style="font-size:17px;color:var(--accent);margin-top:22px">Original, módulo completo o pila suelta</h2>
+        <p style="color:var(--text-alt)">Cambiar solo la pila dentro del módulo es más barato y suele ser suficiente. Pero si el módulo tiene el regulador integrado en falla, la carcasa fisurada, el flotador dañado o el conector quemado, el módulo completo sale mejor a la larga. En sistemas <strong>sin retorno</strong>, donde el regulador vive dentro del módulo, muchas veces no hay alternativa.</p>
+        <h2 style="font-size:17px;color:var(--accent);margin-top:22px">Sobre las equivalencias</h2>
+        <p style="color:var(--text-alt)">En la ficha de cada vehículo del <a href="/vehiculos" style="color:var(--accent)">catálogo</a> encontrarás el número de parte original y las alternativas compatibles con su presión, flujo y amperaje. Úsalas como punto de partida y confirma la aplicación con el catálogo del fabricante antes de comprar: los proveedores actualizan aplicaciones y a veces un mismo modelo cambió de bomba a mitad de año de producción.</p>
+        <p style="color:var(--text-alt)">Y una advertencia práctica: “universal” no significa compatible. Una pila universal puede dar la presión correcta y aun así fallar por medidas, conector o amperaje.</p>`,
       faq: [
         { q: '¿Cómo sé qué bomba de gasolina le queda a mi carro?', a: 'Debe coincidir en presión de trabajo, flujo (LPH), amperaje, medidas físicas de montaje y conector con polaridad correcta. Que entre físicamente no significa que sea compatible.' },
         { q: '¿Es mejor cambiar solo la pila o el módulo completo?', a: 'Cambiar solo la pila es más barato y suele bastar. Conviene el módulo completo si el regulador integrado falla, la carcasa está fisurada, el flotador está dañado o el conector quemado; en sistemas sin retorno a menudo es la única opción.' }
       ]
     }
   ];
-  const guideBody = (g) => `<main style="max-width:760px;margin:0 auto;padding:40px 22px;color:#E5E7EB;font-family:Montserrat,system-ui,sans-serif;line-height:1.7">
-      <p style="font:700 11px/1 sans-serif;letter-spacing:2px;text-transform:uppercase;color:#979EA7">FuelTech Master · Guía técnica</p>
+  const guideBody = (g) => `<main style="max-width:760px;margin:0 auto;padding:40px 22px;color:var(--text);font-family:Montserrat,system-ui,sans-serif;line-height:1.7">
+      ${BRAND_LOCKUP}
+      <p style="font:700 11px/1 sans-serif;letter-spacing:2px;text-transform:uppercase;color:var(--muted)">Guía técnica</p>
       <h1 style="font-size:26px;margin:10px 0 16px">${g.h1}</h1>
       ${g.html}
-      <p style="margin-top:28px"><a href="/vehiculos" style="color:#E53935;font-weight:700">Busca la presión exacta de tu vehículo →</a></p>
-      <p style="margin-top:10px;color:#979EA7">Más guías: ${GUIDES.map(x => `<a href="/guia/${x.slug}" style="color:#979EA7">${x.label}</a>`).join(' · ')}</p>
+      <p style="margin-top:28px"><a href="/vehiculos" style="color:var(--accent);font-weight:700">Busca la presión exacta de tu vehículo →</a></p>
+      <p style="margin-top:10px;color:var(--muted)">Más guías: ${GUIDES.map(x => `<a href="/guia/${x.slug}" style="color:var(--muted)">${x.label}</a>`).join(' · ')}</p>
     </main>`;
 
   app.get('/guias', async (req, res) => {
-    const items = GUIDES.map(g => `<li><a href="/guia/${g.slug}" style="color:#E5E7EB;text-decoration:none">${g.h1}</a></li>`).join('');
+    const items = GUIDES.map(g => `<li><a href="/guia/${g.slug}" style="color:var(--text);text-decoration:none">${g.h1}</a></li>`).join('');
     res.set('Cache-Control', 'public, max-age=3600');
     res.type('html').send(renderShell({
       title: 'Guías de diagnóstico del sistema de combustible | FuelTech Master',
       description: 'Guías prácticas para mecánicos: síntomas de una bomba de gasolina fallando, cómo medir la presión de combustible y causas de presión baja.',
       canonicalPath: '/guias', nonce: res.locals.cspNonce,
-      rootContent: `<main style="max-width:760px;margin:0 auto;padding:40px 22px;color:#E5E7EB;font-family:Montserrat,system-ui,sans-serif"><h1 style="font-size:24px">Guías de diagnóstico</h1><ul style="line-height:2.2;margin-top:12px;padding-left:18px">${items}</ul></main>`
+      rootContent: `<main style="max-width:760px;margin:0 auto;padding:40px 22px;color:var(--text);font-family:Montserrat,system-ui,sans-serif">${BRAND_LOCKUP}<h1 style="font-size:24px">Guías de diagnóstico</h1><ul style="line-height:2.2;margin-top:12px;padding-left:18px">${items}</ul></main>`
     }));
   });
 

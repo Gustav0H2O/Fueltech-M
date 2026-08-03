@@ -8,13 +8,16 @@
 <meta name="keywords" content="pila de gasolina, bomba de gasolina, módulo de gasolina, presión de riel, presión de combustible, PSI inyección, refacciones automotrices, taller mecánico, mecánica automotriz, diagnóstico automotriz, TBI, MFI, GDI, Vortec, Latinoamérica">
 <meta name="robots" content="index, follow">
 <link rel="canonical" href="https://fueltech-master.onrender.com/">
-<meta name="theme-color" content="#0D1117">
+<meta name="theme-color" content="#0F1113" media="(prefers-color-scheme: dark)">
+<meta name="theme-color" content="#F4F5F2" media="(prefers-color-scheme: light)">
 <link rel="manifest" href="/manifest.webmanifest">
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="apple-mobile-web-app-title" content="FuelTech">
-<link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg%20xmlns='http://www.w3.org/2000/svg'%20viewBox='0%200%2064%2064'%3E%3Crect%20width='64'%20height='64'%20rx='12'%20fill='%230D1117'/%3E%3Ctext%20x='32'%20y='45'%20font-family='Arial,sans-serif'%20font-weight='800'%20font-size='34'%20fill='%23E5E7EB'%20text-anchor='middle'%3EF%3Ctspan%20fill='%23E53935'%3ET%3C/tspan%3E%3C/text%3E%3C/svg%3E">
+<link rel="icon" type="image/svg+xml" href="/icon.svg">
+<link rel="icon" type="image/png" sizes="64x64" href="/brand/favicon-64.png">
+<link rel="apple-touch-icon" href="/brand/apple-touch-icon.png">
 
 <meta property="og:type" content="website">
 <meta property="og:site_name" content="FuelTech Master">
@@ -51,40 +54,78 @@
 <link href="https://fonts.googleapis.com/css2?family=Montserrat:wght@400;500;600;700;800&display=swap" rel="stylesheet">
 <style>
   :root {
-    /* Paleta de marca FuelTech Master */
-    --bg: #0D1117; --panel: rgba(27, 35, 45, .82); --panel2: rgba(35, 44, 56, .9);
-    --border: rgba(74, 85, 98, .35); --border-hi: rgba(74, 85, 98, .65);
-    --text: #E5E7EB; --muted: #979EA7;
-    --red: #E53935; --red-dim: rgba(229, 57, 53, .4);
+    /* ============================================================
+       Paleta de marca FuelTech Master
+       Lima de marca #AECC3A (muestreado del logotipo) sobre grafito
+       neutro. El ámbar queda reservado para advertencias de dato
+       ("estimado", "no verificado"), que no deben leerse como acento.
+       ============================================================ */
+    --accent: #AECC3A;          /* lima de marca */
+    --accent-strong: #C2DE4C;   /* hover / brillo */
+    --accent-ink: #101310;      /* texto sobre relleno lima */
+    /* Rellenos sólidos (FAB, botones primarios): el lima NO cambia con el tema.
+       Es el color del logotipo y siempre lleva tinta oscura encima (~11:1), así que
+       funciona igual sobre grafito que sobre blanco. El --accent oscurecido del
+       modo claro es solo para texto y bordes, donde sí necesita contraste. */
+    --accent-fill: #AECC3A; --accent-fill-strong: #C2DE4C;
+    --accent-soft: rgba(174, 204, 58, .09);
+    --accent-soft-2: rgba(174, 204, 58, .16);
+    --accent-dim: rgba(174, 204, 58, .42);
+    --accent-glow: rgba(174, 204, 58, .28);
+    /* alias heredados: app.js, three3d.js y admin siguen pidiendo --red */
+    --red: var(--accent); --red-dim: var(--accent-dim);
+
+    --bg: #0F1113; --panel: rgba(26, 30, 33, .82); --panel2: rgba(36, 41, 45, .9);
+    --border: rgba(126, 133, 138, .3); --border-hi: rgba(126, 133, 138, .6);
+    --text: #E8EAE6; --muted: #969C99;
     --amber: #F0B429; --amber-dim: rgba(240, 180, 41, .45);
     --font: 'Montserrat', system-ui, -apple-system, sans-serif;
-    --v3d-bg: radial-gradient(ellipse at 50% 40%, #141b24 0%, #0D1117 90%);
-    --v3d-hint: rgba(151,158,167,.75);
-    --bg-glass: rgba(13, 17, 23, .96);
-    --bg-glass-strip: rgba(13, 17, 23, .94);
-    --bg-glass-tip: rgba(13, 17, 23, .92);
-    --bg-fade: rgba(13, 17, 23, .88);
-    --input-bg: rgba(7, 11, 17, .7);
-    --text-alt: #BAC4D0;
-    --alert-text: #f0c6c4;
+    --v3d-bg: radial-gradient(ellipse at 50% 40%, #191d1c 0%, #0F1113 90%);
+    --v3d-hint: rgba(150, 156, 153, .75);
+    --bg-glass: rgba(15, 17, 19, .96);
+    --bg-glass-strip: rgba(15, 17, 19, .94);
+    --bg-glass-tip: rgba(15, 17, 19, .92);
+    --bg-fade: rgba(15, 17, 19, .88);
+    --input-bg: rgba(8, 10, 11, .7);
+    --text-alt: #BFC5BE;
+    --alert-text: #F2D9A3;
+    --neutral-soft: rgba(126, 133, 138, .08);
+    --neutral-soft-2: rgba(126, 133, 138, .12);
+    --neutral-soft-3: rgba(126, 133, 138, .2);
+    --scroll-thumb: #4A504F;
+    --logo-dark: block; --logo-light: none;
     color-scheme: dark;
   }
   @media (prefers-color-scheme: light) {
     :root {
-      --bg: #F3F4F6; --panel: rgba(255, 255, 255, 1); --panel2: rgba(229, 231, 235, 1);
-      --border: rgba(156, 163, 175, 0.8); --border-hi: rgba(75, 85, 99, 0.9);
-      --text: #000000; --muted: #374151;
-      --red: #B91C1C; --red-dim: rgba(185, 28, 28, .2);
-      --amber: #92400E; --amber-dim: rgba(146, 64, 14, .2);
-      --v3d-bg: radial-gradient(ellipse at 50% 40%, #f3f6f9 0%, #cbd5e1 90%);
-      --v3d-hint: rgba(17, 24, 39, .85);
-      --bg-glass: rgba(243, 244, 246, 0.96);
-      --bg-glass-strip: rgba(243, 244, 246, 0.94);
-      --bg-glass-tip: rgba(255, 255, 255, 0.96);
-      --bg-fade: rgba(243, 244, 246, 0.88);
+      /* el lima puro no alcanza 4.5:1 sobre blanco: para texto y bordes se
+         usa una versión oliva oscura, y el lima queda solo como relleno */
+      --accent: #55700D;
+      --accent-strong: #435A08;
+      --accent-ink: #101310;
+      --accent-soft: rgba(85, 112, 13, .08);
+      --accent-soft-2: rgba(85, 112, 13, .14);
+      --accent-dim: rgba(85, 112, 13, .35);
+      --accent-glow: rgba(174, 204, 58, .45);
+
+      --bg: #F4F5F2; --panel: #FFFFFF; --panel2: #E8EBE3;
+      --border: rgba(120, 128, 118, .55); --border-hi: rgba(70, 76, 68, .75);
+      --text: #14161A; --muted: #4B514C;
+      --amber: #8A5A00; --amber-dim: rgba(138, 90, 0, .3);
+      --v3d-bg: radial-gradient(ellipse at 50% 40%, #f7f9f3 0%, #d3d9cb 90%);
+      --v3d-hint: rgba(20, 22, 26, .85);
+      --bg-glass: rgba(244, 245, 242, .96);
+      --bg-glass-strip: rgba(244, 245, 242, .94);
+      --bg-glass-tip: rgba(255, 255, 255, .96);
+      --bg-fade: rgba(244, 245, 242, .88);
       --input-bg: #FFFFFF;
-      --text-alt: #4B5563;
-      --alert-text: #991B1B;
+      --text-alt: #4B514C;
+      --alert-text: #6B4A00;
+      --neutral-soft: rgba(70, 76, 68, .06);
+      --neutral-soft-2: rgba(70, 76, 68, .1);
+      --neutral-soft-3: rgba(70, 76, 68, .16);
+      --scroll-thumb: #A7ADA3;
+      --logo-dark: none; --logo-light: block;
       color-scheme: light;
     }
   }
@@ -95,7 +136,7 @@
      en todo el sitio (los anchos explícitos, como .logo-ft o .result-item, no se ven
      afectados porque ya tienen flex:none). */
   * { min-width: 0; }
-  html { scrollbar-color: #4A5562 var(--bg); -webkit-tap-highlight-color: transparent; }
+  html { scrollbar-color: var(--scroll-thumb) var(--bg); -webkit-tap-highlight-color: transparent; }
   @media (prefers-reduced-motion: no-preference) { html { scroll-behavior: smooth; } }
   body {
     background: var(--bg); color: var(--text); font: 14.5px/1.55 var(--font);
@@ -103,7 +144,7 @@
   }
   .skip-link {
     position: absolute; left: 12px; top: -60px; z-index: 100;
-    background: var(--red); color: #fff; font: 700 12px var(--font); letter-spacing: 1px;
+    background: var(--accent-fill); color: var(--accent-ink); font: 700 12px var(--font); letter-spacing: 1px;
     padding: 10px 16px; border-radius: 2px; transition: top .15s;
   }
   .skip-link:focus { top: 12px; }
@@ -120,9 +161,9 @@
   body::before {
     content: ''; position: fixed; inset: 0; z-index: 0; pointer-events: none;
     background:
-      radial-gradient(ellipse 700px 500px at 12% -8%, rgba(229,57,53,.08), transparent),
-      radial-gradient(ellipse 800px 600px at 95% 15%, rgba(74,85,98,.12), transparent),
-      radial-gradient(ellipse 900px 500px at 50% 110%, rgba(74,85,98,.08), transparent);
+      radial-gradient(ellipse 700px 500px at 12% -8%, var(--accent-soft), transparent),
+      radial-gradient(ellipse 800px 600px at 95% 15%, var(--neutral-soft-2), transparent),
+      radial-gradient(ellipse 900px 500px at 50% 110%, var(--neutral-soft), transparent);
   }
   body::after {
     content: ''; position: fixed; inset: 0; z-index: 1; pointer-events: none; opacity: .04;
@@ -147,16 +188,18 @@
     padding: clamp(20px, 6vw, 36px) clamp(14px, 5vw, 34px) 24px;
     overflow-y: auto; /* Permite scroll para ver el footer */
   }
-  .search-pane .logo-block { display: flex; align-items: center; justify-content: center; gap: 12px; margin-bottom: 38px; flex: none; }
-  .logo-ft { width: clamp(32px, 9vw, 44px); height: clamp(32px, 9vw, 44px); flex: none; }
-  .brand-text { line-height: 1.1; min-width: 0; }
-  .brand-text .title { font: 800 clamp(15px, 4vw, 18px) var(--font); letter-spacing: 1.5px; white-space: nowrap; }
-  .brand-text .title span { color: var(--red); }
-  .brand-text .subtitle {
-    font: 700 8px var(--font); letter-spacing: 4px; text-transform: uppercase;
-    color: var(--muted); margin-top: 3px; display: flex; align-items: center; gap: 6px;
-  }
-  .brand-text .subtitle::before, .brand-text .subtitle::after { content: ''; width: 10px; height: 1px; background: var(--border-hi); flex: none; }
+  /* ---------- logotipo ----------
+     Dos PNG del manual de marca (versión clara y versión oscura). Se muestran
+     con display, no con filter/opacity, para que ninguna de las dos se
+     descargue "a medias" ni se degrade el lima corporativo. */
+  .search-pane .logo-block { display: flex; align-items: center; justify-content: center; margin-bottom: 34px; flex: none; }
+  .logo-lockup { width: min(100%, 260px); height: auto; display: block; }
+  .logo-lockup.on-dark { display: var(--logo-dark); }
+  .logo-lockup.on-light { display: var(--logo-light); }
+  /* isotipo suelto (avatares, cabeceras compactas) */
+  .logo-mark { width: clamp(30px, 8vw, 40px); height: auto; flex: none; }
+  .logo-mark.on-dark { display: var(--logo-dark); }
+  .logo-mark.on-light { display: var(--logo-light); }
 
   .search-pane .panel { flex: none; padding: clamp(16px, 4vw, 30px) clamp(14px, 4vw, 28px); }
   .search-pane .filters {
@@ -205,7 +248,7 @@
     color: var(--text); padding: 10px 0; display: flex; align-items: center; justify-content: center;
     transition: background .15s, color .15s, border-color .15s;
   }
-  .rl-nav:hover { background: rgba(229,57,53,.12); color: var(--red); border-color: var(--red-dim); }
+  .rl-nav:hover { background: var(--accent-soft-2); color: var(--red); border-color: var(--red-dim); }
   .result-item {
     flex: none; width: clamp(150px, 46vw, 190px); display: flex; flex-direction: column; gap: 5px; touch-action: manipulation;
     background: var(--panel); border: 1px solid var(--border); border-top: 3px solid transparent;
@@ -220,7 +263,7 @@
     border: 1px solid var(--amber-dim); border-radius: 2px; padding: 0 4px; margin-left: 5px; vertical-align: 1px;
     cursor: help;
   }
-  .result-item.active { border-top-color: var(--red); background: rgba(229,57,53,.08); border-color: var(--red-dim); }
+  .result-item.active { border-top-color: var(--red); background: var(--accent-soft); border-color: var(--red-dim); }
   .result-item .r-name { font: 600 12.5px var(--font); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   .result-item .r-meta {
     display: flex; flex-direction: column; gap: 3px;
@@ -302,7 +345,7 @@
     transition: border-color .2s, box-shadow .2s;
   }
   .filters input::placeholder { font-size: 12.5px; letter-spacing: .1px; color: var(--muted); opacity: .85; }
-  .filters select:focus-visible, .filters input:focus-visible { border-color: var(--red); box-shadow: 0 0 0 3px rgba(229,57,53,.12); }
+  .filters select:focus-visible, .filters input:focus-visible { border-color: var(--red); box-shadow: 0 0 0 3px var(--accent-soft-2); }
   /* Secundario a propósito: la búsqueda ya es reactiva, este botón solo limpia
      — no debe competir por atención con el contenido de la ficha */
   .filters button {
@@ -312,7 +355,7 @@
     display: flex; align-items: center; justify-content: center; gap: 8px;
     transition: color .15s, border-color .15s, background .15s;
   }
-  .filters button:hover { color: var(--red); border-color: var(--red-dim); background: rgba(229,57,53,.06); }
+  .filters button:hover { color: var(--red); border-color: var(--red-dim); background: var(--accent-soft); }
   .filters button:active { transform: translateY(1px); }
 
   /* ---------- inputs genéricos (calculadoras) ---------- */
@@ -321,16 +364,16 @@
     border: 1px solid var(--border); border-radius: 2px; padding: 10px 12px; outline: none;
     transition: border-color .2s, box-shadow .2s;
   }
-  .styled-input:focus-visible { border-color: var(--red); box-shadow: 0 0 0 3px rgba(229,57,53,.12); }
+  .styled-input:focus-visible { border-color: var(--red); box-shadow: 0 0 0 3px var(--accent-soft-2); }
   .styled-input::placeholder { color: var(--muted); opacity: .7; }
 
   .badge {
     font: 600 10.5px var(--font); letter-spacing: 1.2px; text-transform: uppercase;
     padding: 4px 10px; border-radius: 2px; border: 1px solid; white-space: nowrap;
   }
-  .badge.MFI  { color: var(--text); border-color: var(--border-hi); background: rgba(74,85,98,.12); }
+  .badge.MFI  { color: var(--text); border-color: var(--border-hi); background: var(--neutral-soft-2); }
   .badge.TBI, .badge.VORTEC_CSFI, .badge.GDI {
-    color: var(--red); border-color: var(--red-dim); background: rgba(229,57,53,.07);
+    color: var(--red); border-color: var(--red-dim); background: var(--accent-soft);
   }
   /* ámbar, no rojo: "no verificado" es una advertencia de dato, no una alerta del sistema de inyección */
   .badge.unverified { color: var(--amber); border-color: var(--amber-dim); background: rgba(240,180,41,.08); }
@@ -354,11 +397,13 @@
   }
   .kv-sub:first-child { margin-top: 0; padding-top: 0; border-top: 0; }
 
+  /* ámbar, no lima: una advertencia no puede compartir color con el acento de marca,
+     que en el resto de la interfaz significa "correcto / dato principal" */
   .alert {
-    border-left: 3px solid var(--red); background: rgba(229,57,53,.06); display: flex; align-items: flex-start; gap: 8px;
+    border-left: 3px solid var(--amber); background: rgba(240, 180, 41, .07); display: flex; align-items: flex-start; gap: 8px;
     padding: 10px 14px; font-size: 13px; margin-top: 12px; color: var(--alert-text);
   }
-  .alert.blue { border-left-color: var(--border-hi); background: rgba(74,85,98,.1); color: var(--text); }
+  .alert.blue { border-left-color: var(--border-hi); background: var(--neutral-soft-2); color: var(--text); }
   .alert .icon { margin-top: 1px; }
 
   /* indicador de bajar tanque: es el primer dato que necesita el mecánico, vive arriba del panel */
@@ -367,8 +412,10 @@
     letter-spacing: 1px; text-transform: uppercase; padding: 6px 12px; border-radius: 2px;
     border: 1px solid; margin-bottom: 14px;
   }
-  .tank-flag.drop { color: var(--red); border-color: var(--red-dim); background: rgba(229,57,53,.08); }
-  .tank-flag.nodrop { color: var(--text); border-color: var(--border-hi); background: rgba(74,85,98,.1); }
+  /* bajar el tanque es trabajo extra (ámbar) y no bajarlo es la buena noticia (lima):
+     invertir esto haría que el acento de marca señalara el caso más costoso */
+  .tank-flag.drop { color: var(--amber); border-color: var(--amber-dim); background: rgba(240, 180, 41, .08); }
+  .tank-flag.nodrop { color: var(--accent); border-color: var(--accent-dim); background: var(--accent-soft); }
 
   /* ---------- visores 3D ---------- */
   .v3d {
@@ -389,9 +436,9 @@
   .v3d-btn {
     position: absolute; left: 10px; top: 10px; z-index: 3; cursor: pointer; touch-action: manipulation;
     font: 700 11px var(--font); letter-spacing: 1.8px; display: flex; align-items: center; gap: 7px;
-    background: linear-gradient(145deg, var(--red), #b71c1c); color: #fff; border: 1px solid var(--red);
+    background: linear-gradient(145deg, var(--accent-fill-strong), var(--accent-fill)); color: var(--accent-ink); border: 1px solid var(--accent-fill);
     padding: 8px 16px; border-radius: 2px; transition: filter .15s, transform .1s;
-    box-shadow: 0 2px 8px rgba(229,57,53,.25);
+    box-shadow: 0 2px 8px var(--accent-glow);
   }
   .v3d-btn:hover { filter: brightness(1.12); }
   .v3d-btn:active { transform: translateY(1px); }
@@ -420,7 +467,7 @@
     display: inline-flex; align-items: center; gap: 8px;
   }
   .empty-state .icon { color: var(--muted); }
-  .empty-state button:hover { background: rgba(229,57,53,.1); }
+  .empty-state button:hover { background: var(--accent-soft-2); }
 
   /* ---------- comentarios ---------- */
   .comments-list { display: flex; flex-direction: column; gap: 12px; }
@@ -462,12 +509,12 @@
   .chat-fab {
     position: fixed; bottom: 24px; right: 24px; z-index: 200;
     width: 52px; height: 52px; border-radius: 50%; cursor: pointer;
-    background: linear-gradient(145deg, var(--red), #b71c1c); color: #fff;
-    border: 2px solid rgba(255,255,255,.15); box-shadow: 0 4px 20px rgba(229,57,53,.45);
+    background: linear-gradient(145deg, var(--accent-fill-strong), var(--accent-fill)); color: var(--accent-ink);
+    border: 2px solid rgba(255,255,255,.15); box-shadow: 0 4px 20px var(--accent-glow);
     display: flex; align-items: center; justify-content: center;
     transition: transform .2s, box-shadow .2s;
   }
-  .chat-fab:hover { transform: scale(1.08); box-shadow: 0 6px 28px rgba(229,57,53,.6); }
+  .chat-fab:hover { transform: scale(1.08); box-shadow: 0 6px 28px var(--accent-glow); }
   .chat-fab:active { transform: scale(.95); }
 
   .chat-panel {
@@ -493,13 +540,13 @@
     background: none; border: none; color: var(--muted); cursor: pointer; padding: 4px;
     display: flex; border-radius: 4px; transition: color .15s, background .15s;
   }
-  .chat-close:hover { color: var(--text); background: rgba(74,85,98,.2); }
+  .chat-close:hover { color: var(--text); background: var(--neutral-soft-3); }
   .chat-body {
     flex: 1; overflow-y: auto; padding: 12px 16px; display: flex; flex-direction: column; gap: 10px;
-    scrollbar-width: thin; scrollbar-color: #4A5562 transparent;
+    scrollbar-width: thin; scrollbar-color: var(--scroll-thumb) transparent;
   }
   .chat-body::-webkit-scrollbar { width: 4px; }
-  .chat-body::-webkit-scrollbar-thumb { background: #4A5562; border-radius: 4px; }
+  .chat-body::-webkit-scrollbar-thumb { background: var(--scroll-thumb); border-radius: 4px; }
   .chat-empty {
     text-align: center; color: var(--muted); padding: 20px 10px;
     display: flex; flex-direction: column; align-items: center; gap: 10px;
@@ -514,14 +561,14 @@
     color: var(--text); padding: 8px 14px; cursor: pointer; text-align: left;
     transition: border-color .15s, background .15s;
   }
-  .chat-suggestions button:hover { border-color: var(--red-dim); background: rgba(229,57,53,.06); color: var(--red); }
+  .chat-suggestions button:hover { border-color: var(--red-dim); background: var(--accent-soft); color: var(--red); }
   .chat-warn { color: var(--amber); font-size: 10.5px !important; }
   .chat-msg { display: flex; gap: 8px; max-width: 100%; }
   .chat-msg.user { justify-content: flex-end; }
   .chat-msg.bot { justify-content: flex-start; }
   .chat-avatar {
     flex: none; width: 26px; height: 26px; border-radius: 50%; margin-top: 2px;
-    background: rgba(229,57,53,.12); border: 1px solid var(--red-dim);
+    background: var(--accent-soft-2); border: 1px solid var(--red-dim);
     display: flex; align-items: center; justify-content: center; color: var(--red);
   }
   .chat-bubble {
@@ -530,7 +577,7 @@
     word-break: break-word;
   }
   .chat-msg.user .chat-bubble {
-    background: rgba(229,57,53,.12); border: 1px solid var(--red-dim);
+    background: var(--accent-soft-2); border: 1px solid var(--red-dim);
     color: var(--text);
   }
   .chat-msg.bot .chat-bubble {
@@ -561,7 +608,7 @@
   .chat-input:disabled { opacity: .5; }
   .chat-send {
     flex: none; width: 38px; border-radius: 4px; cursor: pointer;
-    background: var(--red); border: 1px solid var(--red); color: #fff;
+    background: var(--accent-fill); border: 1px solid var(--accent-fill); color: var(--accent-ink);
     display: flex; align-items: center; justify-content: center;
     transition: filter .15s, opacity .15s;
   }
@@ -586,13 +633,8 @@
   <div class="app-shell" style="opacity:0.6;filter:blur(1px);pointer-events:none;transition:opacity .4s,filter .4s">
     <aside class="search-pane">
       <div class="logo-block" style="opacity:0.4">
-        <svg class="logo-ft" viewBox="0 0 70 46" xmlns="http://www.w3.org/2000/svg">
-          <g transform="skewX(-8)">
-            <text x="2" y="34" font-family="Montserrat, system-ui, -apple-system, sans-serif" font-weight="800" font-size="36" fill="var(--text)" letter-spacing="-2">F</text>
-            <text x="27" y="34" font-family="Montserrat, system-ui, -apple-system, sans-serif" font-weight="800" font-size="36" fill="var(--red)" letter-spacing="-2">T</text>
-            <polygon points="2,39 48,39 44,45 -2,45" fill="var(--red)"/>
-          </g>
-        </svg>
+        <img class="logo-lockup on-dark" src="/brand/logo-dark.png" width="760" height="205" alt="FuelTech Master">
+        <img class="logo-lockup on-light" src="/brand/logo-light.png" width="760" height="193" alt="">
       </div>
       <div class="panel"><h2 style="color:var(--muted)">Cargando app…</h2><div style="height:200px"></div></div>
     </aside>
@@ -611,8 +653,8 @@
 <script src="/vendor/react-dom.production.min.js"></script>
 <script src="/vendor/htm.js"></script>
 <script src="/vendor/lucide.js"></script>
-<script src="fx.js"></script>
-<script type="module" src="three3d.js?v=3"></script>
-<script src="app.js?v=3"></script>
+<script src="/fx.js"></script>
+<script type="module" src="/three3d.js?v=4"></script>
+<script src="/app.js?v=4"></script>
 </body>
 </html>
