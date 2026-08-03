@@ -118,7 +118,11 @@ async function createApp(dbOverride, statsOverride) {
     const src = fs.readFileSync(path.join(__dirname, 'public', 'index.html'), 'utf8');
     const out = [];
     for (const m of src.matchAll(/<script(?![^>]*\ssrc=)[^>]*>([\s\S]*?)<\/script>/g)) {
-      out.push(`'sha256-${crypto.createHash('sha256').update(m[1], 'utf8').digest('base64')}'`);
+      // El parser HTML normaliza CRLF a LF antes de calcular el hash del script.
+      // Con el archivo en CRLF (Windows) hashear el texto crudo da un valor que
+      // el navegador nunca reproduce, y bloquea el script sin avisar al servidor.
+      const body = m[1].replace(/\r\n?/g, '\n');
+      out.push(`'sha256-${crypto.createHash('sha256').update(body, 'utf8').digest('base64')}'`);
     }
     return out;
   })();

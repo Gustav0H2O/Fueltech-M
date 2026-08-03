@@ -10,9 +10,19 @@ import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
    Detecta preferencia de color scheme al cargar el módulo.
    En dark mode: aristas brillantes sobre fondo oscuro.
    En light mode: aristas más oscuras sobre fondo claro. */
-const _isLight = typeof window !== 'undefined' && window.matchMedia('(prefers-color-scheme: light)').matches;
+/* El tema puede venir del sistema o de la elección manual del usuario
+   (data-theme en <html>). Se consulta en cada construcción de escena, no una
+   sola vez al cargar el módulo: si no, cambiar de tema dejaba los visores 3D
+   con la paleta anterior hasta recargar la página. */
+const themeIsLight = () => {
+  if (typeof window === 'undefined') return false;
+  const forced = document.documentElement.getAttribute('data-theme');
+  if (forced) return forced === 'light';
+  return window.matchMedia('(prefers-color-scheme: light)').matches;
+};
+let _isLight = themeIsLight();
 
-const PAL = _isLight ? {
+const PAL_LIGHT = {
   edge:      0x5c6660,
   ghostEdge: 0x4c554f,
   ghostFill: 0x848a80,
@@ -28,7 +38,8 @@ const PAL = _isLight ? {
   rubber:    0x33362f,
   hdpe:      0x454840,
   pcb:       0x3d5a2a,
-} : {
+};
+const PAL_DARK = {
   edge:      0xa9b3a4,
   ghostEdge: 0x79837a,
   ghostFill: 0x5c6058,
@@ -45,6 +56,13 @@ const PAL = _isLight ? {
   hdpe:      0x33362f,
   pcb:       0x2d3f1c,
 };
+/* Mismo objeto siempre: los materiales ya creados leen PAL por referencia. */
+const PAL = { ...(_isLight ? PAL_LIGHT : PAL_DARK) };
+function syncTheme() {
+  _isLight = themeIsLight();
+  Object.assign(PAL, _isLight ? PAL_LIGHT : PAL_DARK);
+  return _isLight;
+}
 
 const F = (c, extra = {}) => new THREE.MeshStandardMaterial({
   color: c, metalness: 0, roughness: 1,
@@ -89,7 +107,7 @@ function blueprint(root) {
 function makeLabel(text, color = '#e8eae6', scale = 0.011) {
   const c = document.createElement('canvas');
   const m = c.getContext('2d');
-  m.font = '600 42px "Chakra Petch", sans-serif';
+  m.font = '600 42px Montserrat, system-ui, sans-serif';
   const pad = 16;
   c.width = Math.ceil(m.measureText(text).width) + pad * 2; c.height = 68;
   const ctx = c.getContext('2d');
@@ -98,7 +116,7 @@ function makeLabel(text, color = '#e8eae6', scale = 0.011) {
   rr(1, 6, c.width - 2, c.height - 12, 8); ctx.fill();
   ctx.strokeStyle = 'rgba(160,175,150,.45)'; ctx.lineWidth = 1.5;
   rr(1, 6, c.width - 2, c.height - 12, 8); ctx.stroke();
-  ctx.font = '600 42px "Chakra Petch", sans-serif';
+  ctx.font = '600 42px Montserrat, system-ui, sans-serif';
   ctx.fillStyle = color; ctx.textBaseline = 'middle';
   ctx.fillText(text, pad, 36);
   const tex = new THREE.CanvasTexture(c); tex.colorSpace = THREE.SRGBColorSpace;
@@ -116,9 +134,9 @@ function printedBand(lines, radius, height) {
   ctx.textAlign = 'center';
   for (let rep = 0; rep < 2; rep++) {
     const cx = 256 + rep * 512;
-    ctx.font = '700 54px "Chakra Petch", sans-serif';
+    ctx.font = '700 54px Montserrat, system-ui, sans-serif';
     ctx.fillText(lines[0], cx, 105);
-    ctx.font = '500 36px "Chakra Petch", sans-serif';
+    ctx.font = '500 36px Montserrat, system-ui, sans-serif';
     ctx.fillText(lines[1] || '', cx, 165);
   }
   const tex = new THREE.CanvasTexture(c); tex.colorSpace = THREE.SRGBColorSpace;
@@ -378,6 +396,7 @@ function buildProceduralCar(carGrp, hoverables) {
 }
 
 function car(el, { zone = 'tank_drop', psiText = '', zoneLabel = '', body = 'sedan' } = {}) {
+  syncTheme();   // el usuario pudo cambiar de tema desde la última construcción
   const v = createViewer(el, { camPos: [4.8, 2.6, 6.4], height: 320, target: [0, .8, 0], groundY: 0 });
   const loader = document.createElement('div');
   loader.style.cssText = 'position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; background: rgba(13,17,23,.6); color: #E5E7EB; font: 600 12px sans-serif; z-index: 10; letter-spacing: 1px; backdrop-filter: blur(3px);';
@@ -512,6 +531,7 @@ function externalPump(el) {
      module_gdi                módulo de baja GDI (con jet-pump)
      module_external           bomba externa (escena propia)              */
 function module_(el, { kind = 'module_intank_returnless' } = {}) {
+  syncTheme();   // el usuario pudo cambiar de tema desde la última construcción
   if (kind === 'module_external') return externalPump(el);
   const isHanger = kind === 'module_hanger';
   const hasReturn = isHanger || kind === 'module_intank_return';
@@ -667,6 +687,7 @@ function module_(el, { kind = 'module_intank_returnless' } = {}) {
 
 /* ================= 3. PILA realista con etiqueta impresa ================= */
 function pump(el, { psi = '', style = '', code = '' } = {}) {
+  syncTheme();   // el usuario pudo cambiar de tema desde la última construcción
   const v = createViewer(el, { camPos: [2.3, 1.3, 3.0], height: 260, target: [0, 0, 0], groundY: -1.25 });
   const g = new THREE.Group(); v.scene.add(g);
   const hoverables = [];

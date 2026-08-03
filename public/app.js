@@ -29,6 +29,68 @@ function useGarage() {
   return g;
 }
 
+/* ---------- Tema (auto / claro / oscuro) ----------
+   El script inline del <head> ya aplicó la preferencia antes del primer pintado;
+   aquí solo se lee y se cambia. 'auto' se guarda quitando el atributo para que
+   vuelva a mandar el media query del CSS y siga a los cambios del sistema. */
+const THEME_KEY = 'ft_theme';
+const getTheme = () => { try { return localStorage.getItem(THEME_KEY) || 'auto'; } catch (e) { return 'auto'; } };
+const applyTheme = (t) => {
+  const el = document.documentElement;
+  if (t === 'auto') el.removeAttribute('data-theme');
+  else el.setAttribute('data-theme', t);
+  try { localStorage.setItem(THEME_KEY, t); } catch (e) { /* modo privado */ }
+  // La barra del navegador/PWA no lee variables CSS: hay que darle el color ya resuelto.
+  const dark = t === 'dark' || (t === 'auto' && window.matchMedia('(prefers-color-scheme: dark)').matches);
+  document.querySelectorAll('meta[name="theme-color"]').forEach(m => m.remove());
+  const meta = document.createElement('meta');
+  meta.name = 'theme-color';
+  meta.content = dark ? '#0F1113' : '#F4F5F2';
+  document.head.appendChild(meta);
+  window.dispatchEvent(new Event('ft-theme-change'));
+};
+
+function ThemeSwitch() {
+  const [theme, setTheme] = useState(getTheme);
+  const pick = (t) => { applyTheme(t); setTheme(t); track('tema_cambiar', { tema: t }); };
+  const opt = (id, icon, label) => html`
+    <button type="button" onClick=${() => pick(id)} aria-pressed=${theme === id} title=${'Tema ' + label}>
+      <${Icon} name=${icon} size=${13} /> <span>${label}</span>
+    </button>`;
+  return html`
+    <div class="theme-switch" role="group" aria-label="Tema de la interfaz">
+      ${opt('auto', 'Monitor', 'Auto')}
+      ${opt('light', 'Sun', 'Claro')}
+      ${opt('dark', 'Moon', 'Oscuro')}
+    </div>`;
+}
+
+/* ---------- Avisos efímeros ----------
+   Copiar el enlace o guardar en el garage no cambiaba nada visible; sin acuse
+   el mecánico repite el gesto sin saber si funcionó. Se emiten con un evento
+   para poder avisar desde cualquier componente sin pasar props por toda la app. */
+const toast = (text) => window.dispatchEvent(new CustomEvent('ft-toast', { detail: text }));
+
+function ToastStack() {
+  const [items, setItems] = useState([]);
+  useEffect(() => {
+    let n = 0;
+    const onToast = (e) => {
+      const id = ++n;
+      setItems(list => [...list, { id, text: e.detail }]);
+      setTimeout(() => setItems(list => list.filter(t => t.id !== id)), 2600);
+    };
+    window.addEventListener('ft-toast', onToast);
+    return () => window.removeEventListener('ft-toast', onToast);
+  }, []);
+  if (!items.length) return null;
+  // aria-live: el lector de pantalla anuncia el acuse sin robar el foco
+  return html`
+    <div class="toast-stack" role="status" aria-live="polite">
+      ${items.map(t => html`<div key=${t.id} class="toast"><${Icon} name="CheckCircle2" size=${15} />${t.text}</div>`)}
+    </div>`;
+}
+
 /* Icono Lucide montado como SVG (espera a que window.lucide esté listo).
    Sin aria-label => decorativo (aria-hidden); con aria-label => icono con significado propio. */
 function Icon({ name, size = 16, className = '', spin = false, label }) {
@@ -43,6 +105,21 @@ function Icon({ name, size = 16, className = '', spin = false, label }) {
     ref.current.appendChild(svg);
   }, [name, size, label]);
   return html`<span class=${'icon' + (spin ? ' spin' : '') + (className ? ' ' + className : '')} ref=${ref}></span>`;
+}
+
+/* Reconstruye al cambiar de tema. Las escenas de Three.js fijan sus colores al
+   crear los materiales, así que recolorear en vivo exigiría recorrerlas enteras;
+   rehacerlas es más simple y solo ocurre al pulsar el selector de tema. */
+function useThemeKey() {
+  const [k, setK] = useState(0);
+  useEffect(() => {
+    const bump = () => setK(n => n + 1);
+    const mq = window.matchMedia('(prefers-color-scheme: dark)');
+    window.addEventListener('ft-theme-change', bump);
+    mq.addEventListener('change', bump);   // modo 'auto': sigue al sistema
+    return () => { window.removeEventListener('ft-theme-change', bump); mq.removeEventListener('change', bump); };
+  }, []);
+  return k;
 }
 
 /* Monta un visor 3D de three3d.js dentro de un div (espera a que FT3D esté listo) */
@@ -79,15 +156,18 @@ const ASSEMBLY_LABEL = {
 
 /* ---------- Visores 3D ---------- */
 function Car3D({ zone, psiText, body }) {
-  const ref = use3D((el, FT3D) => FT3D.car(el, { zone, psiText, zoneLabel: ZONE_SHORT[zone], body }), [zone, psiText, body]);
+  const tk = useThemeKey();
+  const ref = use3D((el, FT3D) => FT3D.car(el, { zone, psiText, zoneLabel: ZONE_SHORT[zone], body }), [zone, psiText, body, tk]);
   return html`<div class="v3d" ref=${ref}></div>`;
 }
 function Module3D({ kind }) {
-  const ref = use3D((el, FT3D) => FT3D.module(el, { kind }), [kind]);
+  const tk = useThemeKey();
+  const ref = use3D((el, FT3D) => FT3D.module(el, { kind }), [kind, tk]);
   return html`<div class="v3d" ref=${ref}></div>`;
 }
 function Pump3D({ psi, style, code }) {
-  const ref = use3D((el, FT3D) => FT3D.pump(el, { psi, style, code }), [psi, code]);
+  const tk = useThemeKey();
+  const ref = use3D((el, FT3D) => FT3D.pump(el, { psi, style, code }), [psi, code, tk]);
   return html`<div class="v3d" ref=${ref}></div>`;
 }
 
@@ -249,7 +329,20 @@ function VehicleDetail({ id }) {
     return () => { alive = false; };
   }, [id]);
   if (err) return html`<div class="empty" aria-live="polite">ERROR CARGANDO EL VEHÍCULO — INTENTA DE NUEVO</div>`;
-  if (!v) return html`<div class="empty" aria-live="polite">CARGANDO FICHA TÉCNICA…</div>`;
+  // Esqueleto en vez de una línea de texto: mantiene la altura de la ficha, así
+  // el contenido no salta bajo el dedo cuando terminan de llegar los datos.
+  if (!v) return html`
+    <div class="panel" aria-live="polite" aria-busy="true">
+      <span class="sr-only">Cargando ficha técnica…</span>
+      <div class="skel" aria-hidden="true">
+        <div class="skel-line" style=${{ width: '45%', height: '22px' }}></div>
+        <div class="skel-line" style=${{ width: '70%' }}></div>
+        <div class="skel-line" style=${{ width: '35%', height: '30px', marginTop: '8px' }}></div>
+        <div class="skel-line" style=${{ width: '90%', marginTop: '14px' }}></div>
+        <div class="skel-line" style=${{ width: '80%' }}></div>
+        <div class="skel-line" style=${{ width: '60%' }}></div>
+      </div>
+    </div>`;
 
   const psiText = `${v.rail_pressure.psi_min}–${v.rail_pressure.psi_max}`;
   const multiModule = v.modules.length > 1;
@@ -262,16 +355,19 @@ function VehicleDetail({ id }) {
     track('compartir', { method: 'nativo' });
     try {
       if (navigator.share) await navigator.share({ title: 'FuelTech Master', text: shareMsg, url: shareUrl });
-      else { await navigator.clipboard.writeText(shareUrl); }
+      else { await navigator.clipboard.writeText(shareUrl); toast('Enlace copiado'); }
     } catch (e) { /* cancelado por el usuario */ }
   };
   const shareBtn = {
     display: 'inline-flex', alignItems: 'center', gap: '7px', font: '700 11px var(--font)',
-    letterSpacing: '1px', textTransform: 'uppercase', background: 'transparent', color: 'var(--red)',
-    border: '1px solid var(--red-dim)', borderRadius: '2px', padding: '9px 14px', cursor: 'pointer'
+    letterSpacing: '1px', textTransform: 'uppercase', background: 'transparent', color: 'var(--accent)',
+    border: '1px solid var(--accent-dim)', borderRadius: '2px', padding: '9px 14px', cursor: 'pointer'
   };
   const saved = garage.some(x => x.id === v.id);
-  const onStar = () => toggleGarage({ id: v.id, brand: v.brand, model: v.model, psi: v.rail_pressure.psi_max, slug: v.slug });
+  const onStar = () => {
+    toggleGarage({ id: v.id, brand: v.brand, model: v.model, psi: v.rail_pressure.psi_max, slug: v.slug });
+    toast(saved ? 'Quitado de Mi Garage' : 'Guardado en Mi Garage');
+  };
 
   return html`
     <div>
@@ -570,7 +666,7 @@ function Calculators() {
   let ampStatus = '';
   let ampColor = '';
   if (amps > 0) {
-    if (amps > 20) { ampStatus = 'Consumo crítico. Motor atascado o en corto.'; ampColor = 'var(--red)'; }
+    if (amps > 20) { ampStatus = 'Consumo crítico. Motor atascado o en corto.'; ampColor = 'var(--danger)'; }
     else if (amps > 14) { ampStatus = 'Consumo alto. Riesgo de sobrecalentar relay.'; ampColor = 'var(--amber)'; }
     else if (amps < 2) { ampStatus = 'Consumo muy bajo. Circuito abierto o sin carga.'; ampColor = 'var(--amber)'; }
     else { ampStatus = 'Consumo normal para bomba estándar.'; ampColor = 'var(--text)'; }
@@ -585,12 +681,12 @@ function Calculators() {
     <button type="button" onClick=${() => setTab(id)} style=${{
       flex: 1, padding: '14px 8px', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px',
       background: tab === id ? 'var(--accent-soft)' : 'transparent',
-      border: 'none', borderBottom: tab === id ? '2px solid var(--red)' : '2px solid transparent',
+      border: 'none', borderBottom: tab === id ? '2px solid var(--accent)' : '2px solid transparent',
       color: tab === id ? 'var(--text)' : 'var(--muted)',
       fontFamily: 'var(--font)', fontSize: '11px', fontWeight: '700', letterSpacing: '1px', textTransform: 'uppercase',
       cursor: 'pointer', transition: 'all .2s'
     }}>
-      <${Icon} name=${icon} size=${16} color=${tab === id ? 'var(--red)' : 'currentColor'} /> 
+      <${Icon} name=${icon} size=${16} color=${tab === id ? 'var(--accent)' : 'currentColor'} /> 
       <span>${text}</span>
     </button>
   `;
@@ -606,8 +702,8 @@ function Calculators() {
         </div>
 
         <div style=${{ display: 'flex', flexWrap: 'wrap', borderBottom: '1px solid var(--border)', background: 'var(--panel)' }}>
-          ${tabBtn('flow', 'Activity', 'Caudal (LPH)')}
-          ${tabBtn('pressure', 'ArrowRightLeft', 'Presión (PSI)')}
+          ${tabBtn('flow', 'Droplets', 'Caudal (LPH)')}
+          ${tabBtn('pressure', 'Gauge', 'Presión (PSI)')}
           ${tabBtn('electrical', 'Zap', 'Eléctrico (Ley de Ohm)')}
         </div>
 
@@ -635,7 +731,7 @@ function Calculators() {
                 </div>
                 ${reqLph > 0 ? html`
                   <div class="alert blue" style=${{ marginTop: '20px', alignItems: 'center' }}>
-                    <${Icon} name="CheckCircle2" size=${18} color="var(--amber)" /> 
+                    <${Icon} name="CheckCircle2" size=${18} color="var(--accent)" /> 
                     <span>La bomba debe entregar mínimo <b style=${{ color: 'var(--text)', fontSize: '15px' }}>${reqLph} LPH</strong> reales a la presión de trabajo.</span>
                   </div>` : ''}
               </div>
@@ -712,7 +808,7 @@ function Calculators() {
                   </div>
                 </div>
                 ${amps > 0 ? html`
-                  <div style=${{ marginTop: '16px', padding: '12px', background: 'rgba(0,0,0,0.2)', border: '1px solid var(--border)', borderRadius: '4px', fontSize: '13px', color: ampColor, textAlign: 'center', fontWeight: 600 }}>
+                  <div style=${{ marginTop: '16px', padding: '12px', background: 'var(--sunken)', border: '1px solid var(--border)', borderRadius: '4px', fontSize: '13px', color: ampColor, textAlign: 'center', fontWeight: 600 }}>
                     ${ampStatus}
                   </div>
                 ` : ''}
@@ -855,6 +951,7 @@ function App() {
           <${LogoLockup} />
           <h1 class="sr-only">FuelTech Master</h1>
         </div>
+        <${ThemeSwitch} />
 
         <div class="panel">
           <h2>Filtros de búsqueda</h2>
@@ -893,7 +990,11 @@ function App() {
         </div>
 
         <div class="app-footer">
-          <div class="footer-brand">FUEL<span>TECH</span> MASTER</div>
+          <div class="footer-head">
+            <img class="footer-mark on-dark" src="/brand/mark-dark.png" width="256" height="283" alt="" aria-hidden="true" decoding="async" />
+            <img class="footer-mark on-light" src="/brand/mark-light.png" width="256" height="266" alt="" aria-hidden="true" decoding="async" />
+            <div class="footer-brand">FUEL<span>TECH</span> MASTER</div>
+          </div>
           <div class="footer-desc">Catálogo técnico de módulos y pilas de gasolina</div>
           <div class="footer-desc" style=${{ marginTop: '5px' }}><a href="/guias" style=${{ color: 'var(--muted)', textDecoration: 'underline' }}>Guías de diagnóstico</a> · <a href="/vehiculos" style=${{ color: 'var(--muted)', textDecoration: 'underline' }}>Catálogo completo</a></div>
           <div class="footer-desc" style=${{ marginTop: '4px' }}><a href="/acerca-de" style=${{ color: 'var(--muted)', textDecoration: 'underline' }}>Acerca de</a> · <a href="/contacto" style=${{ color: 'var(--muted)', textDecoration: 'underline' }}>Contacto</a> · <a href="/privacidad" style=${{ color: 'var(--muted)', textDecoration: 'underline' }}>Privacidad y cookies</a> · <a href="/terminos" style=${{ color: 'var(--muted)', textDecoration: 'underline' }}>Términos</a></div>
@@ -912,7 +1013,7 @@ function App() {
           <div class="rs-head">
             <h2>${showGarage ? 'Mi Garage' : 'Vehículos encontrados'} <button type="button" class="link-btn" style=${{ marginLeft: '10px', fontSize: '11px', letterSpacing: '.5px' }} onClick=${() => setShowGarage(s => !s)}>${showGarage ? '← búsqueda' : `★ Garage (${garage.length})`}</button></h2>
             <div class="result-count" aria-live="polite">
-              ${isSearching ? html`<span style=${{color: 'var(--red)', marginRight: '6px'}}><${Icon} name="Loader2" size=${12} spin=${true} /></span>` : ''}
+              ${isSearching ? html`<span style=${{color: 'var(--accent)', marginRight: '6px'}}><${Icon} name="Loader2" size=${12} spin=${true} /></span>` : ''}
               ${results ? html`<strong>${results.length}</strong> resultado(s)` : 'Cargando vehículos…'}
               ${results?.some(r => !r.data_verified) &&
                 html`<span class="legend-est" title="Dato estimado por clase de sistema, aún sin confirmar contra el manual de servicio del vehículo">${' · '}<em class="r-est">EST.</em> = sin verificar</span>`}
@@ -963,13 +1064,14 @@ function App() {
         </div>
       </div>
       <${ChatBot} vehicleId=${selected} />
-      ${showPrivacy && html`<div class="panel" style=${{ position: 'fixed', bottom: '20px', right: '20px', zIndex: 100, maxWidth: '320px', padding: '16px' }}>
+      <${ToastStack} />
+      ${showPrivacy && html`<div class="panel privacy-notice" role="region" aria-label="Aviso de privacidad">
         <h3 style=${{fontSize: '13px', color: 'var(--text)', marginBottom: '8px', display: 'flex', alignItems: 'center', gap: '8px'}}>
-          <${Icon} name="ShieldCheck" size=${16} color="var(--red)" /> Privacidad y Cookies
+          <${Icon} name="ShieldCheck" size=${16} color="var(--accent)" /> Privacidad y Cookies
         </h3>
         <p style=${{fontSize: '11.5px', color: 'var(--muted)', marginBottom: '14px', lineHeight: 1.45}}>
           Usamos almacenamiento local para tus preferencias, estadísticas anónimas (respetamos Do-Not-Track) y cookies de terceros —incluido Google— para mostrar y medir anuncios.
-          Detalle y cómo desactivarlos en la <a href="/privacidad" style=${{color: 'var(--red)'}}>política de privacidad y cookies</a>.
+          Detalle y cómo desactivarlos en la <a href="/privacidad" style=${{color: 'var(--accent)'}}>política de privacidad y cookies</a>.
         </p>
         <button type="button" onClick=${acceptPrivacy} style=${{background: 'var(--accent-fill)', color: 'var(--accent-ink)', border: 'none', padding: '8px 16px', borderRadius: '4px', cursor: 'pointer', fontSize: '11.5px', fontWeight: 600, width: '100%'}}>Aceptar y continuar</button>
       </div>`}

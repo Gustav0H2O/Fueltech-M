@@ -231,6 +231,11 @@
     position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px;
     overflow: hidden; clip: rect(0,0,0,0); white-space: nowrap; border: 0;
   }
+  /* Foco visible por defecto en TODO lo interactivo. Los componentes que quieran
+     otro tratamiento (inputs con halo, tarjetas de resultado) lo sobrescriben. */
+  :where(a, button, select, input, textarea, [tabindex]):focus-visible {
+    outline: 2px solid var(--accent); outline-offset: 2px; border-radius: 2px;
+  }
   .icon { display: inline-flex; flex: none; vertical-align: -3px; color: currentColor; }
   .icon svg { display: block; }
   .icon.spin svg { animation: ft-spin 1s linear infinite; }
@@ -280,6 +285,80 @@
   .logo-mark.on-dark { display: var(--logo-dark); }
   .logo-mark.on-light { display: var(--logo-light); }
 
+  /* ---------- selector de tema ----------
+     Tres estados explícitos (auto / claro / oscuro) en vez de un interruptor de
+     dos: "auto" es el que quiere la mayoría, y sin él elegir manualmente una vez
+     dejaría al usuario clavado en ese tema para siempre. */
+  .theme-switch {
+    display: flex; gap: 2px; padding: 3px; margin: 0 auto 26px;
+    background: var(--panel2); border: 1px solid var(--border); border-radius: 999px;
+  }
+  .theme-switch button {
+    display: flex; align-items: center; justify-content: center; gap: 6px;
+    padding: 7px 13px; border: none; border-radius: 999px; cursor: pointer;
+    background: transparent; color: var(--muted); touch-action: manipulation;
+    font: 700 9.5px var(--font); letter-spacing: 1.4px; text-transform: uppercase;
+    transition: background .18s, color .18s;
+  }
+  .theme-switch button:hover { color: var(--text); }
+  .theme-switch button[aria-pressed="true"] {
+    background: var(--accent-fill); color: var(--accent-ink);
+  }
+  .theme-switch button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+  /* ---------- toast de confirmación ----------
+     Copiar un enlace o guardar en el garage no cambiaba nada visible: sin
+     respuesta el mecánico vuelve a tocar el botón sin saber si funcionó. */
+  .toast-stack {
+    position: fixed; left: 50%; bottom: calc(24px + env(safe-area-inset-bottom));
+    transform: translateX(-50%); z-index: 300;
+    display: flex; flex-direction: column; align-items: center; gap: 8px;
+    pointer-events: none; width: max-content; max-width: calc(100vw - 32px);
+  }
+  .toast {
+    display: flex; align-items: center; gap: 9px;
+    background: var(--panel2); border: 1px solid var(--accent-dim);
+    border-left: 3px solid var(--accent); color: var(--text);
+    padding: 11px 18px; border-radius: 4px; box-shadow: var(--shadow-lg);
+    font: 600 12.5px var(--font); letter-spacing: .3px;
+    animation: toast-in .22s ease-out;
+  }
+  .toast .icon { color: var(--accent); }
+  @keyframes toast-in { from { opacity: 0; transform: translateY(12px); } to { opacity: 1; transform: none; } }
+  @media (prefers-reduced-motion: reduce) { .toast { animation: none; } }
+
+  /* ---------- aviso de privacidad ----------
+     Anclado a la IZQUIERDA a propósito: el FAB del chat vive abajo a la derecha
+     y ambos son fixed, así que compartir esquina tapaba el botón de aceptar. */
+  /* .panel.<clase> y no solo .privacy-notice: `.panel` declara position:relative
+     más abajo en la hoja y, a igual especificidad, ganaba por orden de fuente —
+     el aviso caía dentro del flujo y estrujaba el panel de contenido. */
+  .panel.privacy-notice {
+    position: fixed; z-index: 100; max-width: 340px; padding: 16px;
+    left: calc(20px + env(safe-area-inset-left));
+    bottom: calc(20px + env(safe-area-inset-bottom));
+    box-shadow: var(--shadow-lg);
+  }
+  @media (max-width: 900px) {
+    /* en móvil no cabe al lado del FAB: ocupa el ancho y se sienta por encima de él */
+    .panel.privacy-notice {
+      left: 12px; right: 12px; max-width: none;
+      bottom: calc(84px + env(safe-area-inset-bottom));
+    }
+  }
+
+  /* ---------- esqueleto de carga ----------
+     Reserva el mismo espacio que el contenido real, así la ficha no "salta"
+     al llegar los datos (evita layout shift y clics accidentales). */
+  .skel { display: flex; flex-direction: column; gap: 10px; }
+  .skel-line {
+    height: 12px; border-radius: 3px;
+    background: linear-gradient(90deg, var(--neutral-soft-2) 25%, var(--neutral-soft-3) 50%, var(--neutral-soft-2) 75%);
+    background-size: 200% 100%; animation: skel-shimmer 1.4s ease-in-out infinite;
+  }
+  @keyframes skel-shimmer { from { background-position: 200% 0; } to { background-position: -200% 0; } }
+  @media (prefers-reduced-motion: reduce) { .skel-line { animation: none; } }
+
   .search-pane .panel { flex: none; padding: clamp(16px, 4vw, 30px) clamp(14px, 4vw, 28px); }
   .search-pane .filters {
     display: grid; grid-template-columns: 1fr 1fr; gap: 20px 18px;
@@ -301,13 +380,13 @@
   }
   .results-strip .rs-head { display: flex; align-items: baseline; justify-content: space-between; margin-bottom: 12px; }
   .results-strip .rs-head h2 {
-    font: 700 12px var(--font); letter-spacing: 2px; text-transform: uppercase; color: var(--red);
+    font: 700 12px var(--font); letter-spacing: 2px; text-transform: uppercase; color: var(--accent);
   }
   .result-count { color: var(--text-alt); font: 600 10.5px var(--font); letter-spacing: 1px; text-transform: uppercase; }
-  .result-count b { color: var(--red); }
+  .result-count b { color: var(--accent); }
   .legend-est { cursor: help; }
   .link-btn {
-    background: none; border: none; padding: 0; margin: 0; font: inherit; color: var(--red);
+    background: none; border: none; padding: 0; margin: 0; font: inherit; color: var(--accent);
     text-decoration: underline; cursor: pointer; touch-action: manipulation;
   }
   .legend-est .r-est { margin-left: 0; margin-right: 2px; }
@@ -327,22 +406,32 @@
     color: var(--text); padding: 10px 0; display: flex; align-items: center; justify-content: center;
     transition: background .15s, color .15s, border-color .15s;
   }
-  .rl-nav:hover { background: var(--accent-soft-2); color: var(--red); border-color: var(--red-dim); }
+  .rl-nav:hover { background: var(--accent-soft-2); color: var(--accent); border-color: var(--accent-dim); }
   .result-item {
     flex: none; width: clamp(150px, 46vw, 190px); display: flex; flex-direction: column; gap: 5px; touch-action: manipulation;
     background: var(--panel); border: 1px solid var(--border); border-top: 3px solid transparent;
-    border-radius: 4px; padding: 11px 13px; cursor: pointer; transition: border-color .15s, background .15s;
+    border-radius: 4px; padding: 11px 13px; cursor: pointer;
+    transition: border-color .15s, background .15s, transform .15s, box-shadow .15s;
     /* es un <button> (navegable con teclado): resetear estilos de botón */
     font: inherit; color: inherit; text-align: left; appearance: none;
   }
-  .result-item:hover { background: var(--panel2); }
-  .result-item:focus-visible { outline: 2px solid var(--red); outline-offset: 2px; }
+  /* Elevación al pasar: confirma que la tarjeta es pulsable antes de tocarla.
+     Solo con puntero fino — en táctil no hay hover y el "sticky hover" de los
+     móviles dejaría una tarjeta levantada después de tocarla. */
+  @media (hover: hover) and (pointer: fine) {
+    .result-item:hover {
+      background: var(--panel2); border-color: var(--border-hi);
+      transform: translateY(-2px); box-shadow: 0 4px 12px var(--sunken);
+    }
+  }
+  .result-item:active { transform: translateY(0); }
+  .result-item:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
   .r-est {
     font: 700 9px var(--font); font-style: normal; letter-spacing: 1px; color: var(--amber);
     border: 1px solid var(--amber-dim); border-radius: 2px; padding: 0 4px; margin-left: 5px; vertical-align: 1px;
     cursor: help;
   }
-  .result-item.active { border-top-color: var(--red); background: var(--accent-soft); border-color: var(--red-dim); }
+  .result-item.active { border-top-color: var(--accent); background: var(--accent-soft); border-color: var(--accent-dim); }
   .result-item .r-name { font: 600 12.5px var(--font); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   .result-item .r-meta {
     display: flex; flex-direction: column; gap: 3px;
@@ -402,10 +491,10 @@
   }
   .panel::before {
     content: ''; position: absolute; top: 0; left: 14px; right: 0;
-    height: 1px; background: linear-gradient(90deg, var(--red-dim), transparent 60%);
+    height: 1px; background: linear-gradient(90deg, var(--accent-dim), transparent 60%);
   }
   .panel h2 {
-    font: 700 13px var(--font); letter-spacing: 2.5px; text-transform: uppercase; color: var(--red);
+    font: 700 13px var(--font); letter-spacing: 2.5px; text-transform: uppercase; color: var(--accent);
     display: flex; align-items: center; gap: 8px; margin-bottom: 14px;
   }
   .panel h2::after { content: ''; flex: 1; height: 1px; background: linear-gradient(90deg, var(--border-hi), transparent); }
@@ -424,7 +513,7 @@
     transition: border-color .2s, box-shadow .2s;
   }
   .filters input::placeholder { font-size: 12.5px; letter-spacing: .1px; color: var(--muted); opacity: .85; }
-  .filters select:focus-visible, .filters input:focus-visible { border-color: var(--red); box-shadow: 0 0 0 3px var(--accent-soft-2); }
+  .filters select:focus-visible, .filters input:focus-visible { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft-2); }
   /* Secundario a propósito: la búsqueda ya es reactiva, este botón solo limpia
      — no debe competir por atención con el contenido de la ficha */
   .filters button {
@@ -434,7 +523,7 @@
     display: flex; align-items: center; justify-content: center; gap: 8px;
     transition: color .15s, border-color .15s, background .15s;
   }
-  .filters button:hover { color: var(--red); border-color: var(--red-dim); background: var(--accent-soft); }
+  .filters button:hover { color: var(--accent); border-color: var(--accent-dim); background: var(--accent-soft); }
   .filters button:active { transform: translateY(1px); }
 
   /* ---------- inputs genéricos (calculadoras) ---------- */
@@ -443,7 +532,7 @@
     border: 1px solid var(--border); border-radius: 2px; padding: 10px 12px; outline: none;
     transition: border-color .2s, box-shadow .2s;
   }
-  .styled-input:focus-visible { border-color: var(--red); box-shadow: 0 0 0 3px var(--accent-soft-2); }
+  .styled-input:focus-visible { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft-2); }
   .styled-input::placeholder { color: var(--muted); opacity: .7; }
 
   .badge {
@@ -452,10 +541,10 @@
   }
   .badge.MFI  { color: var(--text); border-color: var(--border-hi); background: var(--neutral-soft-2); }
   .badge.TBI, .badge.VORTEC_CSFI, .badge.GDI {
-    color: var(--red); border-color: var(--red-dim); background: var(--accent-soft);
+    color: var(--accent); border-color: var(--accent-dim); background: var(--accent-soft);
   }
   /* ámbar, no rojo: "no verificado" es una advertencia de dato, no una alerta del sistema de inyección */
-  .badge.unverified { color: var(--amber); border-color: var(--amber-dim); background: rgba(240,180,41,.08); }
+  .badge.unverified { color: var(--amber); border-color: var(--amber-dim); background: var(--amber-soft); }
 
   /* ---------- detalle (vista en vivo) ---------- */
   .grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
@@ -479,7 +568,7 @@
   /* ámbar, no lima: una advertencia no puede compartir color con el acento de marca,
      que en el resto de la interfaz significa "correcto / dato principal" */
   .alert {
-    border-left: 3px solid var(--amber); background: rgba(240, 180, 41, .07); display: flex; align-items: flex-start; gap: 8px;
+    border-left: 3px solid var(--amber); background: var(--amber-soft); display: flex; align-items: flex-start; gap: 8px;
     padding: 10px 14px; font-size: 13px; margin-top: 12px; color: var(--alert-text);
   }
   .alert.blue { border-left-color: var(--border-hi); background: var(--neutral-soft-2); color: var(--text); }
@@ -493,7 +582,7 @@
   }
   /* bajar el tanque es trabajo extra (ámbar) y no bajarlo es la buena noticia (lima):
      invertir esto haría que el acento de marca señalara el caso más costoso */
-  .tank-flag.drop { color: var(--amber); border-color: var(--amber-dim); background: rgba(240, 180, 41, .08); }
+  .tank-flag.drop { color: var(--amber); border-color: var(--amber-dim); background: var(--amber-soft); }
   .tank-flag.nodrop { color: var(--accent); border-color: var(--accent-dim); background: var(--accent-soft); }
 
   /* ---------- visores 3D ---------- */
@@ -508,7 +597,7 @@
   }
   .v3d-tip {
     position: absolute; left: 0; top: 0; opacity: 0; pointer-events: none; z-index: 3;
-    background: var(--bg-glass-tip); border: 1px solid var(--red); color: var(--red);
+    background: var(--bg-glass-tip); border: 1px solid var(--accent); color: var(--accent);
     font: 600 11.5px var(--font); letter-spacing: .8px; padding: 5px 10px; white-space: nowrap;
     transition: opacity .12s;
   }
@@ -526,7 +615,7 @@
   .pump-card { background: var(--panel2); border: 1px solid var(--border); padding: 14px 16px; }
   .pump-card h4 { font: 700 14.5px var(--font); color: var(--text); display: flex; align-items: center; flex-wrap: wrap; gap: 8px; }
   .chip { font: 700 10px var(--font); letter-spacing: 1.2px; border-radius: 2px; padding: 2px 8px; border: 1px solid; }
-  .chip.oem { color: var(--red); border-color: var(--red-dim); }
+  .chip.oem { color: var(--accent); border-color: var(--accent-dim); }
   .chip.alt { color: var(--muted); border-color: var(--border-hi); }
   .muted { color: var(--muted); font-size: 13px; }
   .empty { text-align: center; color: var(--muted); padding: 46px; font-family: var(--font); letter-spacing: 1px; }
@@ -541,7 +630,7 @@
   .empty-state p.hint { font: 500 12px var(--font); color: var(--muted); max-width: 380px; }
   .empty-state button {
     margin-top: 6px; font: 700 11px var(--font); letter-spacing: 1.5px; text-transform: uppercase;
-    background: transparent; color: var(--red); border: 1px solid var(--red-dim); touch-action: manipulation;
+    background: transparent; color: var(--accent); border: 1px solid var(--accent-dim); touch-action: manipulation;
     border-radius: 2px; padding: 9px 22px; cursor: pointer; transition: background .15s;
     display: inline-flex; align-items: center; gap: 8px;
   }
@@ -551,7 +640,7 @@
   /* ---------- comentarios ---------- */
   .comments-list { display: flex; flex-direction: column; gap: 12px; }
   .comment-item { padding: 12px 14px; background: var(--panel2); border: 1px solid var(--border); border-radius: 4px; }
-  .comment-item.reply { margin-top: 10px; border-left: 2px solid var(--red-dim); background: rgba(0,0,0,0.1); }
+  .comment-item.reply { margin-top: 10px; border-left: 2px solid var(--accent-dim); background: var(--sunken); }
   .comment-head { display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 6px; font-size: 13px; }
   .comment-body { color: var(--text); font-size: 13.5px; line-height: 1.5; word-wrap: break-word; }
   .comment-replies { margin-left: 12px; margin-top: 10px; padding-left: 12px; border-left: 1px solid var(--border); }
@@ -563,11 +652,15 @@
     color: var(--muted); font: 400 10.5px var(--font); letter-spacing: .5px;
     padding-bottom: 40px; /* Forzar espacio extra al fondo para asegurar que el correo nunca quede oculto */
   }
+  .app-footer .footer-mark { width: 26px; height: auto; flex: none; opacity: .85; }
+  .app-footer .footer-mark.on-dark { display: var(--logo-dark); }
+  .app-footer .footer-mark.on-light { display: var(--logo-light); }
+  .app-footer .footer-head { display: flex; align-items: center; gap: 9px; margin-bottom: 6px; }
   .app-footer .footer-brand {
     font: 700 11px var(--font); letter-spacing: 2px; text-transform: uppercase;
     color: var(--text); margin-bottom: 4px;
   }
-  .app-footer .footer-brand span { color: var(--red); }
+  .app-footer .footer-brand span { color: var(--accent); }
   .app-footer .footer-desc { margin-top: 2px; }
   .app-footer .footer-copy { margin-top: 6px; font-size: 9px; opacity: .65; letter-spacing: .2px; }
   .dev-contact {
@@ -582,14 +675,14 @@
     color: var(--muted); text-decoration: none; font: 600 10.5px var(--font); letter-spacing: .3px;
     transition: color .15s;
   }
-  .dev-contact a:hover, .dev-contact a:focus-visible { color: var(--red); }
+  .dev-contact a:hover, .dev-contact a:focus-visible { color: var(--accent); }
 
   /* ---------- Chatbot flotante ---------- */
   .chat-fab {
     position: fixed; bottom: 24px; right: 24px; z-index: 200;
     width: 52px; height: 52px; border-radius: 50%; cursor: pointer;
     background: linear-gradient(145deg, var(--accent-fill-strong), var(--accent-fill)); color: var(--accent-ink);
-    border: 2px solid rgba(255,255,255,.15); box-shadow: 0 4px 20px var(--accent-glow);
+    border: 2px solid var(--hairline); box-shadow: 0 4px 20px var(--accent-glow);
     display: flex; align-items: center; justify-content: center;
     transition: transform .2s, box-shadow .2s;
   }
@@ -601,7 +694,7 @@
     width: 380px; height: 520px; max-height: calc(100vh - 130px);
     background: var(--panel); border: 1px solid var(--border); border-radius: 8px;
     backdrop-filter: blur(12px); display: flex; flex-direction: column;
-    box-shadow: 0 8px 40px rgba(0,0,0,.5);
+    box-shadow: var(--shadow-lg);
     animation: chat-slide .25s ease-out;
   }
   @keyframes chat-slide {
@@ -612,7 +705,7 @@
     display: flex; align-items: center; gap: 8px; padding: 14px 16px;
     border-bottom: 1px solid var(--border); flex: none;
     font: 700 12px var(--font); letter-spacing: 1.5px; text-transform: uppercase;
-    color: var(--red);
+    color: var(--accent);
   }
   .chat-head span { flex: 1; }
   .chat-close {
@@ -640,15 +733,15 @@
     color: var(--text); padding: 8px 14px; cursor: pointer; text-align: left;
     transition: border-color .15s, background .15s;
   }
-  .chat-suggestions button:hover { border-color: var(--red-dim); background: var(--accent-soft); color: var(--red); }
+  .chat-suggestions button:hover { border-color: var(--accent-dim); background: var(--accent-soft); color: var(--accent); }
   .chat-warn { color: var(--amber); font-size: 10.5px !important; }
   .chat-msg { display: flex; gap: 8px; max-width: 100%; }
   .chat-msg.user { justify-content: flex-end; }
   .chat-msg.bot { justify-content: flex-start; }
   .chat-avatar {
     flex: none; width: 26px; height: 26px; border-radius: 50%; margin-top: 2px;
-    background: var(--accent-soft-2); border: 1px solid var(--red-dim);
-    display: flex; align-items: center; justify-content: center; color: var(--red);
+    background: var(--accent-soft-2); border: 1px solid var(--accent-dim);
+    display: flex; align-items: center; justify-content: center; color: var(--accent);
   }
   .chat-bubble {
     max-width: 85%; padding: 9px 13px; border-radius: 6px;
@@ -656,7 +749,7 @@
     word-break: break-word;
   }
   .chat-msg.user .chat-bubble {
-    background: var(--accent-soft-2); border: 1px solid var(--red-dim);
+    background: var(--accent-soft-2); border: 1px solid var(--accent-dim);
     color: var(--text);
   }
   .chat-msg.bot .chat-bubble {
@@ -682,7 +775,7 @@
     border-radius: 4px; padding: 10px 13px; font: 500 13px var(--font);
     color: var(--text); outline: none; transition: border-color .2s;
   }
-  .chat-input:focus { border-color: var(--red); }
+  .chat-input:focus { border-color: var(--accent); }
   .chat-input::placeholder { color: var(--muted); opacity: .7; }
   .chat-input:disabled { opacity: .5; }
   .chat-send {
@@ -715,9 +808,25 @@
         <img class="logo-lockup on-dark" src="/brand/logo-dark.png" width="760" height="205" alt="FuelTech Master">
         <img class="logo-lockup on-light" src="/brand/logo-light.png" width="760" height="193" alt="">
       </div>
-      <div class="panel"><h2 style="color:var(--muted)">Cargando app…</h2><div style="height:200px"></div></div>
+      <div class="panel" aria-busy="true">
+        <div class="skel" aria-hidden="true">
+          <div class="skel-line" style="width:40%;height:16px"></div>
+          <div class="skel-line" style="width:100%;height:38px;margin-top:10px"></div>
+          <div class="skel-line" style="width:100%;height:38px"></div>
+          <div class="skel-line" style="width:100%;height:38px"></div>
+          <div class="skel-line" style="width:100%;height:44px;margin-top:12px"></div>
+        </div>
+      </div>
     </aside>
-    <div class="content-pane"><div class="empty">CARGANDO FUELTECH MASTER…</div></div>
+    <div class="content-pane"><div class="preview-inner"><div class="panel" aria-busy="true">
+      <div class="skel" aria-hidden="true">
+        <div class="skel-line" style="width:45%;height:22px"></div>
+        <div class="skel-line" style="width:70%"></div>
+        <div class="skel-line" style="width:35%;height:30px;margin-top:8px"></div>
+        <div class="skel-line" style="width:90%;margin-top:14px"></div>
+        <div class="skel-line" style="width:80%"></div>
+      </div>
+    </div></div></div>
   </div>
   <!--ROOT-CONTENT-END-->
 </div>
