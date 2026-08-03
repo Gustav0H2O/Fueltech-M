@@ -109,14 +109,27 @@ async function createApp(dbOverride, statsOverride) {
     'https://adservice.google.com', 'https://ep1.adtrafficquality.google', 'https://ep2.adtrafficquality.google'];
   const ads = (list) => (ADSENSE_CLIENT ? list : []);
 
+  /* Hashes CSP de los <script> inline de index.html.
+     Se calculan del archivo que realmente se sirve en vez de fijarlos a mano:
+     un hash pegado literalmente caduca en silencio al tocar el script y el
+     único síntoma es que el navegador lo bloquea (p. ej. el tema dejaría de
+     aplicarse) sin ningún error en el servidor. */
+  const INLINE_SCRIPT_HASHES = (() => {
+    const src = fs.readFileSync(path.join(__dirname, 'public', 'index.html'), 'utf8');
+    const out = [];
+    for (const m of src.matchAll(/<script(?![^>]*\ssrc=)[^>]*>([\s\S]*?)<\/script>/g)) {
+      out.push(`'sha256-${crypto.createHash('sha256').update(m[1], 'utf8').digest('base64')}'`);
+    }
+    return out;
+  })();
+
   app.use(helmet({
     contentSecurityPolicy: {
       directives: {
         defaultSrc: ["'self'"],
         scriptSrc: [
           "'self'",
-          "'sha256-F9dVDQv5gEOHF0o9y7tZzMIBD0kCrcE0up8c/8KomQE='",
-          "'sha256-7GhNN277uMGXe9dIUeIQSUgq8nBXJUEdmoyu+v0yd9c='",
+          ...INLINE_SCRIPT_HASHES,
           (req, res) => `'nonce-${res.locals.cspNonce}'`,
           ...(GA_ID ? ['https://www.googletagmanager.com'] : []),
           // AdSense inyecta scripts propios en tiempo de ejecución y no admite nonce en ellos.

@@ -10,6 +10,18 @@
 <link rel="canonical" href="https://fueltech-master.onrender.com/">
 <meta name="theme-color" content="#0F1113" media="(prefers-color-scheme: dark)">
 <meta name="theme-color" content="#F4F5F2" media="(prefers-color-scheme: light)">
+<script>
+/* Tema: se resuelve ANTES del primer pintado para que no haya destello blanco.
+   Va inline y sin defer a propósito — un archivo externo llegaría tarde.
+   'auto' no se estampa como atributo: se deja que el media query del CSS
+   decida, así el respaldo sin JS sigue funcionando igual. */
+(function () {
+  try {
+    var pref = localStorage.getItem('ft_theme');           // 'light' | 'dark' | 'auto' | null
+    if (pref === 'light' || pref === 'dark') document.documentElement.setAttribute('data-theme', pref);
+  } catch (e) { /* localStorage bloqueado (modo privado): se queda en auto */ }
+})();
+</script>
 <link rel="manifest" href="/manifest.webmanifest">
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-capable" content="yes">
@@ -53,13 +65,23 @@
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Montserrat:wght@400;500;600;700;800&display=swap" rel="stylesheet">
 <style>
+  /* ================================================================
+     Sistema de color FuelTech Master
+     ----------------------------------------------------------------
+     Tres roles semánticos, deliberadamente separados. Antes de la
+     identidad lima el rojo hacía de marca Y de peligro a la vez; al
+     volverse lima la marca, "consumo crítico" habría quedado en verde.
+     Por eso ahora:
+       lima  (--accent) = marca, acción, dato confirmado
+       ámbar (--amber)  = incertidumbre, advertencia, trabajo extra
+       rojo  (--danger) = falla real: corto, circuito abierto, error
+     Nunca intercambiarlos: en un taller el color es la primera lectura.
+
+     El tema se resuelve con [data-theme] en <html>, que estampa el
+     script del <head> antes del primer pintado (ver "tema"). Así el
+     usuario puede forzar claro/oscuro además de seguir al sistema.
+     ================================================================ */
   :root {
-    /* ============================================================
-       Paleta de marca FuelTech Master
-       Lima de marca #AECC3A (muestreado del logotipo) sobre grafito
-       neutro. El ámbar queda reservado para advertencias de dato
-       ("estimado", "no verificado"), que no deben leerse como acento.
-       ============================================================ */
     --accent: #AECC3A;          /* lima de marca */
     --accent-strong: #C2DE4C;   /* hover / brillo */
     --accent-ink: #101310;      /* texto sobre relleno lima */
@@ -72,13 +94,16 @@
     --accent-soft-2: rgba(174, 204, 58, .16);
     --accent-dim: rgba(174, 204, 58, .42);
     --accent-glow: rgba(174, 204, 58, .28);
-    /* alias heredados: app.js, three3d.js y admin siguen pidiendo --red */
+    /* alias heredados: three3d.js y admin.js siguen pidiendo --red */
     --red: var(--accent); --red-dim: var(--accent-dim);
 
+    --danger: #F2555A; --danger-dim: rgba(242, 85, 90, .45); --danger-soft: rgba(242, 85, 90, .1);
+    --amber: #F0B429; --amber-dim: rgba(240, 180, 41, .45); --amber-soft: rgba(240, 180, 41, .08);
+
     --bg: #0F1113; --panel: rgba(26, 30, 33, .82); --panel2: rgba(36, 41, 45, .9);
+    --card: rgba(36, 41, 45, .9);
     --border: rgba(126, 133, 138, .3); --border-hi: rgba(126, 133, 138, .6);
     --text: #E8EAE6; --muted: #969C99;
-    --amber: #F0B429; --amber-dim: rgba(240, 180, 41, .45);
     --font: 'Montserrat', system-ui, -apple-system, sans-serif;
     --v3d-bg: radial-gradient(ellipse at 50% 40%, #191d1c 0%, #0F1113 90%);
     --v3d-hint: rgba(150, 156, 153, .75);
@@ -87,44 +112,98 @@
     --bg-glass-tip: rgba(15, 17, 19, .92);
     --bg-fade: rgba(15, 17, 19, .88);
     --input-bg: rgba(8, 10, 11, .7);
+    --sunken: rgba(0, 0, 0, .22);        /* cajas hundidas dentro de un panel */
     --text-alt: #BFC5BE;
     --alert-text: #F2D9A3;
     --neutral-soft: rgba(126, 133, 138, .08);
     --neutral-soft-2: rgba(126, 133, 138, .12);
     --neutral-soft-3: rgba(126, 133, 138, .2);
     --scroll-thumb: #4A504F;
+    --hairline: rgba(255, 255, 255, .14); /* borde de realce sobre relleno oscuro */
+    --shadow-lg: 0 8px 40px rgba(0, 0, 0, .5);
     --logo-dark: block; --logo-light: none;
     color-scheme: dark;
   }
-  @media (prefers-color-scheme: light) {
-    :root {
-      /* el lima puro no alcanza 4.5:1 sobre blanco: para texto y bordes se
-         usa una versión oliva oscura, y el lima queda solo como relleno */
-      --accent: #55700D;
-      --accent-strong: #435A08;
-      --accent-ink: #101310;
-      --accent-soft: rgba(85, 112, 13, .08);
-      --accent-soft-2: rgba(85, 112, 13, .14);
-      --accent-dim: rgba(85, 112, 13, .35);
-      --accent-glow: rgba(174, 204, 58, .45);
 
-      --bg: #F4F5F2; --panel: #FFFFFF; --panel2: #E8EBE3;
-      --border: rgba(120, 128, 118, .55); --border-hi: rgba(70, 76, 68, .75);
-      --text: #14161A; --muted: #4B514C;
-      --amber: #8A5A00; --amber-dim: rgba(138, 90, 0, .3);
-      --v3d-bg: radial-gradient(ellipse at 50% 40%, #f7f9f3 0%, #d3d9cb 90%);
-      --v3d-hint: rgba(20, 22, 26, .85);
-      --bg-glass: rgba(244, 245, 242, .96);
-      --bg-glass-strip: rgba(244, 245, 242, .94);
-      --bg-glass-tip: rgba(255, 255, 255, .96);
-      --bg-fade: rgba(244, 245, 242, .88);
-      --input-bg: #FFFFFF;
-      --text-alt: #4B514C;
-      --alert-text: #6B4A00;
-      --neutral-soft: rgba(70, 76, 68, .06);
-      --neutral-soft-2: rgba(70, 76, 68, .1);
-      --neutral-soft-3: rgba(70, 76, 68, .16);
-      --scroll-thumb: #A7ADA3;
+  /* Paleta clara. Se aplica cuando el usuario la elige (data-theme="light") o,
+     si no ha elegido nada, cuando el sistema la pide. El script del <head>
+     normaliza el caso "auto" a un data-theme explícito, así que en la práctica
+     manda el selector de atributo; el media query es el respaldo sin JS. */
+  :root[data-theme="light"],
+  :root:not([data-theme]) {
+    /* el lima puro no alcanza 4.5:1 sobre blanco: para texto y bordes se
+       usa una versión oliva oscura, y el lima queda solo como relleno */
+    --lt-accent: #55700D;
+    --lt-accent-strong: #435A08;
+    --lt-accent-soft: rgba(85, 112, 13, .08);
+    --lt-accent-soft-2: rgba(85, 112, 13, .14);
+    --lt-accent-dim: rgba(85, 112, 13, .35);
+    --lt-accent-glow: rgba(174, 204, 58, .45);
+    --lt-danger: #C0272D; --lt-danger-dim: rgba(192, 39, 45, .4); --lt-danger-soft: rgba(192, 39, 45, .07);
+    --lt-amber: #8A5A00; --lt-amber-dim: rgba(138, 90, 0, .3); --lt-amber-soft: rgba(138, 90, 0, .07);
+    --lt-bg: #F4F5F2; --lt-panel: #FFFFFF; --lt-panel2: #E8EBE3; --lt-card: #E8EBE3;
+    --lt-border: rgba(120, 128, 118, .55); --lt-border-hi: rgba(70, 76, 68, .75);
+    --lt-text: #14161A; --lt-muted: #4B514C;
+    --lt-v3d-bg: radial-gradient(ellipse at 50% 40%, #f7f9f3 0%, #d3d9cb 90%);
+    --lt-v3d-hint: rgba(20, 22, 26, .85);
+    --lt-bg-glass: rgba(244, 245, 242, .96);
+    --lt-bg-glass-strip: rgba(244, 245, 242, .94);
+    --lt-bg-glass-tip: rgba(255, 255, 255, .96);
+    --lt-bg-fade: rgba(244, 245, 242, .88);
+    --lt-input-bg: #FFFFFF;
+    --lt-sunken: rgba(70, 76, 68, .07);
+    --lt-text-alt: #4B514C;
+    --lt-alert-text: #6B4A00;
+    --lt-neutral-soft: rgba(70, 76, 68, .06);
+    --lt-neutral-soft-2: rgba(70, 76, 68, .1);
+    --lt-neutral-soft-3: rgba(70, 76, 68, .16);
+    --lt-scroll-thumb: #A7ADA3;
+    --lt-hairline: rgba(0, 0, 0, .1);
+    --lt-shadow-lg: 0 8px 40px rgba(30, 35, 28, .22);
+  }
+  /* El remapeo va aparte del media query porque una regla CSS no puede estar
+     a la vez dentro y fuera de un @media. Las dos condiciones comparten los
+     valores --lt-* de arriba, así que no hay riesgo de que se desincronicen. */
+  :root[data-theme="light"] {
+    --accent: var(--lt-accent); --accent-strong: var(--lt-accent-strong);
+    --accent-soft: var(--lt-accent-soft); --accent-soft-2: var(--lt-accent-soft-2);
+    --accent-dim: var(--lt-accent-dim); --accent-glow: var(--lt-accent-glow);
+    --danger: var(--lt-danger); --danger-dim: var(--lt-danger-dim); --danger-soft: var(--lt-danger-soft);
+    --amber: var(--lt-amber); --amber-dim: var(--lt-amber-dim); --amber-soft: var(--lt-amber-soft);
+    --bg: var(--lt-bg); --panel: var(--lt-panel); --panel2: var(--lt-panel2); --card: var(--lt-card);
+    --border: var(--lt-border); --border-hi: var(--lt-border-hi);
+    --text: var(--lt-text); --muted: var(--lt-muted);
+    --v3d-bg: var(--lt-v3d-bg); --v3d-hint: var(--lt-v3d-hint);
+    --bg-glass: var(--lt-bg-glass); --bg-glass-strip: var(--lt-bg-glass-strip);
+    --bg-glass-tip: var(--lt-bg-glass-tip); --bg-fade: var(--lt-bg-fade);
+    --input-bg: var(--lt-input-bg); --sunken: var(--lt-sunken);
+    --text-alt: var(--lt-text-alt); --alert-text: var(--lt-alert-text);
+    --neutral-soft: var(--lt-neutral-soft); --neutral-soft-2: var(--lt-neutral-soft-2);
+    --neutral-soft-3: var(--lt-neutral-soft-3);
+    --scroll-thumb: var(--lt-scroll-thumb); --hairline: var(--lt-hairline);
+    --shadow-lg: var(--lt-shadow-lg);
+    --logo-dark: none; --logo-light: block;
+    color-scheme: light;
+  }
+  @media (prefers-color-scheme: light) {
+    :root:not([data-theme]) {
+      --accent: var(--lt-accent); --accent-strong: var(--lt-accent-strong);
+      --accent-soft: var(--lt-accent-soft); --accent-soft-2: var(--lt-accent-soft-2);
+      --accent-dim: var(--lt-accent-dim); --accent-glow: var(--lt-accent-glow);
+      --danger: var(--lt-danger); --danger-dim: var(--lt-danger-dim); --danger-soft: var(--lt-danger-soft);
+      --amber: var(--lt-amber); --amber-dim: var(--lt-amber-dim); --amber-soft: var(--lt-amber-soft);
+      --bg: var(--lt-bg); --panel: var(--lt-panel); --panel2: var(--lt-panel2); --card: var(--lt-card);
+      --border: var(--lt-border); --border-hi: var(--lt-border-hi);
+      --text: var(--lt-text); --muted: var(--lt-muted);
+      --v3d-bg: var(--lt-v3d-bg); --v3d-hint: var(--lt-v3d-hint);
+      --bg-glass: var(--lt-bg-glass); --bg-glass-strip: var(--lt-bg-glass-strip);
+      --bg-glass-tip: var(--lt-bg-glass-tip); --bg-fade: var(--lt-bg-fade);
+      --input-bg: var(--lt-input-bg); --sunken: var(--lt-sunken);
+      --text-alt: var(--lt-text-alt); --alert-text: var(--lt-alert-text);
+      --neutral-soft: var(--lt-neutral-soft); --neutral-soft-2: var(--lt-neutral-soft-2);
+      --neutral-soft-3: var(--lt-neutral-soft-3);
+      --scroll-thumb: var(--lt-scroll-thumb); --hairline: var(--lt-hairline);
+      --shadow-lg: var(--lt-shadow-lg);
       --logo-dark: none; --logo-light: block;
       color-scheme: light;
     }
