@@ -21,10 +21,10 @@ services:
       # Google Analytics 4 (ya integrado en el código; cambia el ID aquí si algún día lo necesitas).
       - key: GA_MEASUREMENT_ID
         value: G-MXGS03FKB0
-      # Google AdSense. Pega aquí tu ID de editor (ca-pub-...) cuando AdSense lo asigne.
-      # Vacío = anuncios desactivados, CSP cerrada y /ads.txt en 404.
+      # Google AdSense. ID de editor: activa el script en todas las páginas, abre la CSP
+      # para los dominios de anuncios y publica /ads.txt. Vaciarlo desactiva todo eso.
       - key: ADSENSE_CLIENT
-        value: ""
+        value: ca-pub-7076623221520706
       # Correo de contacto y nombre del editor que aparecen en las páginas legales.
       - key: CONTACT_EMAIL
         value: newpersonal98@gmail.com
