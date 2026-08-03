@@ -7,7 +7,7 @@ const helmet = require('helmet');
 const compression = require('compression');
 const rateLimit = require('express-rate-limit');
 const morgan = require('morgan');
-const { db, statsDb } = require('./db');
+const { db: defaultDb, statsDb: defaultStatsDb } = require('./db');
 const { GoogleGenerativeAI } = require('@google/generative-ai');
 
 const PROD = process.env.NODE_ENV === 'production';
@@ -23,6 +23,12 @@ const GEMINI_MODEL = process.env.GEMINI_MODEL || 'gemini-1.5-flash';
 
 /* Google Analytics 4. Configurable; vacío = desactivado (y no se toca la CSP). */
 const GA_ID = process.env.GA_MEASUREMENT_ID || 'G-MXGS03FKB0';
+
+/* Google AdSense. Formato: ca-pub-0000000000000000 (lo da el panel de AdSense).
+   Vacío = desactivado: no se inyecta el script, no se abre la CSP y /ads.txt responde 404.
+   Con valor: se carga adsbygoogle.js en todas las páginas y se publica ads.txt, que es
+   como Google verifica el sitio y como se declara al editor autorizado. */
+const ADSENSE_CLIENT = (process.env.ADSENSE_CLIENT || '').trim();
 
 /* Panel de administración: protegido con contraseña por variable de entorno.
    Si ADMIN_PASSWORD no está definida, el panel queda DESACTIVADO (seguro por defecto). */
@@ -57,9 +63,16 @@ const psiToBar = (psi) => psi == null ? null : +(psi * 0.0689476).toFixed(2);
 /* Crea y configura la aplicación Express.
    Recibe instancias de Database (better-sqlite3) para fueltech y stats.
    Esto permite tests con bases en memoria sin tocar los archivos reales. */
-async function createApp() {
+async function createApp(dbOverride, statsOverride) {
+  // Los tests inyectan adaptadores sobre bases en memoria; en producción se usan
+  // las conexiones reales del módulo ./db (SQLite local o PostgreSQL según DATABASE_URL).
+  const db = dbOverride || defaultDb;
+  const statsDb = statsOverride || defaultStatsDb;
+
   const visitSalt = process.env.VISIT_SALT || crypto.randomBytes(32).toString('hex');
-  const getTotal = async () => +(await statsDb.get(`SELECT value FROM meta WHERE key = 'total_visits'`, )?.value || 0);
+  // OJO: `await x.get(...)?.value` lee .value sobre la PROMESA (siempre undefined).
+  // Hay que esperar la fila primero — si no, el contador de visitas queda clavado en 0.
+  const getTotal = async () => +((await statsDb.get(`SELECT value FROM meta WHERE key = 'total_visits'`))?.value || 0);
   const bumpTotal = { run: async () => statsDb.run(`
     INSERT INTO meta (key, value) VALUES ('total_visits', '1')
     ON CONFLICT(key) DO UPDATE SET value = CAST(CAST(value AS INTEGER) + 1 AS TEXT)`) };
@@ -84,6 +97,18 @@ async function createApp() {
   // trust proxy ajustable para tests
   app.set('trust proxy', process.env.TRUST_PROXY !== '0' ? 1 : 0);
 
+  /* Orígenes que necesita AdSense. Sin esto la CSP bloquea el script y los iframes de
+     los anuncios: el sitio se ve "sin anuncios" y la revisión de AdSense falla. */
+  const ADS_SCRIPT = ['https://pagead2.googlesyndication.com', 'https://partner.googleadservices.com',
+    'https://tpc.googlesyndication.com', 'https://www.googletagservices.com', 'https://adservice.google.com'];
+  const ADS_FRAME = ['https://googleads.g.doubleclick.net', 'https://tpc.googlesyndication.com',
+    'https://www.google.com', 'https://pagead2.googlesyndication.com'];
+  const ADS_IMG = ['https://pagead2.googlesyndication.com', 'https://googleads.g.doubleclick.net',
+    'https://tpc.googlesyndication.com', 'https://www.google.com', 'https://*.gstatic.com'];
+  const ADS_CONNECT = ['https://pagead2.googlesyndication.com', 'https://googleads.g.doubleclick.net',
+    'https://adservice.google.com', 'https://ep1.adtrafficquality.google', 'https://ep2.adtrafficquality.google'];
+  const ads = (list) => (ADSENSE_CLIENT ? list : []);
+
   app.use(helmet({
     contentSecurityPolicy: {
       directives: {
@@ -93,12 +118,15 @@ async function createApp() {
           "'sha256-F9dVDQv5gEOHF0o9y7tZzMIBD0kCrcE0up8c/8KomQE='",
           "'sha256-7GhNN277uMGXe9dIUeIQSUgq8nBXJUEdmoyu+v0yd9c='",
           (req, res) => `'nonce-${res.locals.cspNonce}'`,
-          ...(GA_ID ? ['https://www.googletagmanager.com'] : [])
+          ...(GA_ID ? ['https://www.googletagmanager.com'] : []),
+          // AdSense inyecta scripts propios en tiempo de ejecución y no admite nonce en ellos.
+          ...ads([...ADS_SCRIPT, "'unsafe-inline'"])
         ],
         styleSrc: ["'self'", "'unsafe-inline'", 'https://fonts.googleapis.com'],
         fontSrc: ["'self'", 'https://fonts.gstatic.com'],
-        imgSrc: ["'self'", 'data:', ...(GA_ID ? ['https://www.googletagmanager.com', 'https://*.google-analytics.com'] : [])],
-        connectSrc: ["'self'", ...(GA_ID ? ['https://www.googletagmanager.com', 'https://*.google-analytics.com', 'https://*.analytics.google.com'] : [])],
+        imgSrc: ["'self'", 'data:', ...(GA_ID ? ['https://www.googletagmanager.com', 'https://*.google-analytics.com'] : []), ...ads(ADS_IMG)],
+        connectSrc: ["'self'", ...(GA_ID ? ['https://www.googletagmanager.com', 'https://*.google-analytics.com', 'https://*.analytics.google.com'] : []), ...ads(ADS_CONNECT)],
+        frameSrc: ["'self'", ...ads(ADS_FRAME)],
         workerSrc: ["'self'", 'blob:'],
         objectSrc: ["'none'"],
         baseUri: ["'self'"],
@@ -143,7 +171,7 @@ async function createApp() {
       .digest('base64url').slice(0, 48);
     const inserted = (await statsDb.run(`INSERT OR IGNORE INTO visit_days (day, visitor_hash) VALUES (?, ?)`, [day, hash])).changes;
     if (inserted) await bumpTotal.run();
-    const today = await statsDb.get(`SELECT COUNT(*) c FROM visit_days WHERE day = ?`, day).c;
+    const today = (await statsDb.get(`SELECT COUNT(*) c FROM visit_days WHERE day = ?`, [day]))?.c || 0;
     res.set('Cache-Control', 'no-store');
     res.json({ total: await getTotal(), today });
   });
@@ -194,8 +222,14 @@ async function createApp() {
     }
     if (vehicleId != null) html = html.replace('<div id="root">', `<div id="root" data-vehicle="${vehicleId}">`);
     if (rootContent) {
+      // El pie legal va en TODAS las páginas renderizadas en servidor: AdSense exige que
+      // privacidad y contacto se alcancen desde cualquier punto del sitio.
       html = html.replace(/<!--ROOT-CONTENT-START-->[\s\S]*?<!--ROOT-CONTENT-END-->/,
-        `<!--ROOT-CONTENT-START-->${rootContent}<!--ROOT-CONTENT-END-->`);
+        `<!--ROOT-CONTENT-START-->${rootContent}${legalFooter()}<!--ROOT-CONTENT-END-->`);
+    }
+    if (ADSENSE_CLIENT) {
+      html = html.replace('</head>',
+        `<script async src="https://pagead2.googlesyndication.com/pagead/js/adsbygoogle.js?client=${encodeURIComponent(ADSENSE_CLIENT)}" crossorigin="anonymous"></script></head>`);
     }
     if (GA_ID) {
       const ga = `<script async src="https://www.googletagmanager.com/gtag/js?id=${GA_ID}"></script>` +
@@ -307,6 +341,182 @@ async function createApp() {
     }));
   });
 
+  /* ---------- Páginas institucionales y legales ----------
+     Requisito duro de Google AdSense: todo sitio con anuncios debe tener política de
+     privacidad accesible (con divulgación de cookies de terceros y publicidad), datos
+     de contacto e identidad del editor. Se sirven renderizadas en servidor para que el
+     revisor de AdSense y Googlebot las vean sin ejecutar JavaScript. */
+  const CONTACT_EMAIL = process.env.CONTACT_EMAIL || 'newpersonal98@gmail.com';
+  const SITE_OWNER = process.env.SITE_OWNER || 'FuelTech Master';
+  const LEGAL_UPDATED = '2 de agosto de 2026';
+
+  const h2 = (t) => `<h2 style="font-size:17px;color:#E53935;margin-top:26px;margin-bottom:8px">${t}</h2>`;
+  const p = (t) => `<p style="color:#B7BFC9;margin-bottom:10px">${t}</p>`;
+  const ul = (items) => `<ul style="color:#B7BFC9;padding-left:20px;margin-bottom:10px;line-height:1.7">${items.map(i => `<li>${i}</li>`).join('')}</ul>`;
+
+  const PAGES = [
+    {
+      slug: 'acerca-de',
+      label: 'Acerca de',
+      title: 'Acerca de FuelTech Master — quiénes somos y cómo verificamos los datos',
+      description: 'Quién está detrás de FuelTech Master, por qué existe este catálogo técnico de presión de combustible y cómo se obtienen y verifican los datos publicados.',
+      h1: 'Acerca de FuelTech Master',
+      html: `${p('FuelTech Master es un catálogo técnico independiente de consulta gratuita, enfocado en el sistema de combustible de vehículos que circulan en Latinoamérica: presión de riel (PSI/Bar), ubicación y especificación de módulos de gasolina, y equivalencias de pilas (bombas) OEM y alternativas.')}
+        ${h2('Por qué existe')}
+        ${p('En el taller, encontrar la presión de riel correcta de un modelo concreto suele significar buscar entre manuales de servicio dispersos, foros y catálogos de refaccionaria que no siempre coinciden. Este proyecto reúne esa información en fichas consultables desde el celular, junto al valor de referencia y los números de parte compatibles, para que el diagnóstico parta de un dato y no de una suposición.')}
+        ${h2('Quién lo publica')}
+        ${p(`El sitio es desarrollado y mantenido de forma independiente por ${esc(SITE_OWNER)}. No pertenece a ningún fabricante de vehículos ni de autopartes, y no está afiliado, patrocinado ni respaldado por las marcas mencionadas: sus nombres y números de parte se citan únicamente con fines de identificación e intercambiabilidad técnica.`)}
+        ${h2('De dónde salen los datos')}
+        ${ul([
+          'Manuales de servicio y boletines técnicos del fabricante.',
+          'Catálogos y fichas de especificación de fabricantes de bombas y módulos de combustible.',
+          'Mediciones y correcciones aportadas por mecánicos que usan la plataforma, revisadas antes de publicarse.'
+        ])}
+        ${p('Cada ficha indica el rango de presión esperado, no un valor absoluto: la lectura real varía con el estado del vehículo, la altitud y las condiciones de la prueba. Las fichas se revisan y corrigen de forma continua; si detectas un dato equivocado, <a href="/contacto" style="color:#E53935">escríbenos</a> y lo verificamos.')}
+        ${h2('Cómo se sostiene el sitio')}
+        ${p('La consulta es gratuita. El sitio se financia con publicidad de terceros, que se muestra claramente separada del contenido técnico. Los anuncios no influyen en los datos publicados ni en las recomendaciones de diagnóstico. Puedes ver el detalle del tratamiento de datos en la <a href="/privacidad" style="color:#E53935">política de privacidad</a>.')}`
+    },
+    {
+      slug: 'contacto',
+      label: 'Contacto',
+      title: 'Contacto | FuelTech Master',
+      description: 'Escríbenos para reportar un dato incorrecto, solicitar que agreguemos un vehículo al catálogo, consultas de publicidad o ejercer tus derechos de privacidad.',
+      h1: 'Contacto',
+      html: `${p('Este es un proyecto atendido por una persona, no por un equipo de soporte: respondemos en cuanto podemos, normalmente dentro de unos días hábiles.')}
+        ${h2('Correo electrónico')}
+        ${p(`<a href="mailto:${esc(CONTACT_EMAIL)}" style="color:#E53935;font-weight:700;font-size:16px">${esc(CONTACT_EMAIL)}</a>`)}
+        ${h2('Escríbenos si quieres')}
+        ${ul([
+          '<strong>Reportar un dato incorrecto.</strong> Indica marca, modelo, año y motor, y el valor que mediste. Es la forma más útil de ayudar al resto de mecánicos.',
+          '<strong>Pedir que agreguemos un vehículo.</strong> Si buscaste un modelo y no estaba, dinos cuál.',
+          '<strong>Consultas de publicidad</strong> o colaboración.',
+          '<strong>Privacidad.</strong> Solicitudes de acceso, corrección o eliminación de datos, según la <a href="/privacidad" style="color:#E53935">política de privacidad</a>.',
+          '<strong>Contenido de terceros.</strong> Reclamos sobre comentarios publicados por usuarios o sobre derechos de autor.'
+        ])}
+        ${h2('Antes de escribir')}
+        ${p('Si tu duda es de diagnóstico, revisa primero las <a href="/guia/como-medir-la-presion-de-combustible" style="color:#E53935">guías técnicas</a>: cubren cómo medir la presión, qué significa una lectura baja y cómo distinguir una bomba muerta de un problema eléctrico. No realizamos diagnósticos a distancia de vehículos concretos.')}`
+    },
+    {
+      slug: 'privacidad',
+      label: 'Privacidad',
+      title: 'Política de privacidad y cookies | FuelTech Master',
+      description: 'Qué datos recopila FuelTech Master, qué cookies usamos, cómo trabajan los anuncios de Google y terceros, y cómo puedes controlar o eliminar tu información.',
+      h1: 'Política de privacidad y cookies',
+      html: `${p(`<em style="color:#979EA7">Última actualización: ${LEGAL_UPDATED}</em>`)}
+        ${p(`Esta política explica qué datos trata FuelTech Master (“el sitio”), operado por ${esc(SITE_OWNER)}, cuando visitas ${esc(BASE_URL)}. Para cualquier consulta sobre este documento, escribe a <a href="mailto:${esc(CONTACT_EMAIL)}" style="color:#E53935">${esc(CONTACT_EMAIL)}</a>.`)}
+
+        ${h2('1. Qué datos recopilamos')}
+        ${ul([
+          '<strong>Datos de uso anónimos.</strong> Para contar visitantes únicos por día generamos un identificador irreversible a partir de tu dirección IP combinada con un valor secreto que rota. No almacenamos tu dirección IP ni podemos reconstruirla a partir de ese identificador. Respetamos la señal Do-Not-Track de tu navegador: si está activada, no registramos la visita.',
+          '<strong>Búsquedas sin resultado.</strong> Si buscas un vehículo que no está en el catálogo, guardamos el texto de la búsqueda (sin asociarlo a ti) para saber qué modelos agregar.',
+          '<strong>Preguntas al asistente de IA.</strong> El texto que escribes en el chat se envía a la API de Google (Gemini) para generar la respuesta. No lo vinculamos a tu identidad. No escribas datos personales, placas, números de cliente ni información confidencial en el chat.',
+          '<strong>Comentarios.</strong> Si publicas un comentario en una ficha, se almacena junto con el nombre que elijas mostrar. Es contenido público: no incluyas datos personales.',
+          '<strong>Preferencias locales.</strong> Tu “garage” de vehículos guardados y la aceptación de este aviso se guardan en el almacenamiento local de tu navegador, en tu dispositivo. No viajan a nuestros servidores y puedes borrarlos limpiando los datos del sitio.'
+        ])}
+        ${p('No solicitamos ni almacenamos nombre, dirección, teléfono ni datos de pago. El sitio no requiere registro de usuario.')}
+
+        ${h2('2. Cookies y tecnologías similares')}
+        ${p('Usamos cookies y almacenamiento local propios para el funcionamiento del sitio y para recordar tus preferencias. Además, terceros pueden colocar cookies en tu navegador, como se detalla a continuación.')}
+        ${ul([
+          '<strong>Cookies necesarias.</strong> Mantienen el funcionamiento básico y recuerdan que aceptaste este aviso.',
+          '<strong>Cookies analíticas.</strong> Usamos Google Analytics 4 para entender de forma agregada qué páginas se consultan más. La información se procesa de forma anónima.',
+          '<strong>Cookies publicitarias.</strong> Usadas por Google y sus socios para mostrar y medir anuncios, según se explica en la sección 3.'
+        ])}
+        ${p('Puedes bloquear o eliminar cookies desde la configuración de tu navegador. Si las bloqueas, el sitio seguirá funcionando, aunque algunas preferencias no se recordarán.')}
+
+        ${h2('3. Publicidad de terceros (Google AdSense)')}
+        ${ul([
+          'Proveedores externos, incluido Google, utilizan cookies para publicar anuncios basados en visitas anteriores del usuario a este u otros sitios web.',
+          'El uso por parte de Google de cookies publicitarias le permite a él y a sus socios publicar anuncios basados en tus visitas a este y otros sitios.',
+          `Puedes inhabilitar la publicidad personalizada en la <a href="https://www.google.com/settings/ads" rel="noopener nofollow" target="_blank" style="color:#E53935">Configuración de anuncios de Google</a>. También puedes desactivar el uso de cookies de otros proveedores en <a href="https://www.aboutads.info/choices/" rel="noopener nofollow" target="_blank" style="color:#E53935">aboutads.info</a> o <a href="https://www.youronlinechoices.com/" rel="noopener nofollow" target="_blank" style="color:#E53935">youronlinechoices.com</a>.`,
+          'Los terceros que muestran anuncios en este sitio pueden recopilar tu dirección IP, identificadores de dispositivo y datos de navegación conforme a sus propias políticas. Consulta cómo <a href="https://policies.google.com/technologies/partner-sites" rel="noopener nofollow" target="_blank" style="color:#E53935">Google utiliza la información de los sitios que usan sus servicios</a>.'
+        ])}
+        ${p('Si te encuentras en el Espacio Económico Europeo, Reino Unido o Suiza, los anuncios personalizados y las cookies no esenciales solo se activan si das tu consentimiento mediante el aviso que aparece al entrar, y puedes retirarlo en cualquier momento borrando los datos del sitio en tu navegador.')}
+
+        ${h2('4. Con quién compartimos datos')}
+        ${p('No vendemos ni cedemos tus datos. Los proveedores que procesan información por cuenta nuestra son: Google (Analytics, AdSense y la API de Gemini para el chat) y nuestro proveedor de alojamiento, que registra peticiones para seguridad y operación del servicio. Podemos divulgar información si la ley lo exige.')}
+
+        ${h2('5. Cuánto tiempo conservamos los datos')}
+        ${p('Los conteos de visita agregados y las búsquedas sin resultado se conservan mientras sean útiles para mejorar el catálogo. Los comentarios permanecen publicados hasta que se solicite su eliminación o los retiremos por incumplir las normas de uso.')}
+
+        ${h2('6. Tus derechos')}
+        ${p(`Puedes solicitar acceso, corrección o eliminación de la información que te concierna, así como la retirada de un comentario, escribiendo a <a href="mailto:${esc(CONTACT_EMAIL)}" style="color:#E53935">${esc(CONTACT_EMAIL)}</a>. Ten en cuenta que gran parte de los datos que tratamos son anónimos y puede que no seamos capaces de vincularlos a ti.`)}
+
+        ${h2('7. Menores de edad')}
+        ${p('El sitio está dirigido a profesionales y aficionados a la mecánica automotriz. No está dirigido a menores de 13 años y no recopilamos conscientemente información de ellos.')}
+
+        ${h2('8. Cambios en esta política')}
+        ${p('Si modificamos esta política, actualizaremos la fecha del encabezado. Los cambios sustanciales se anunciarán en el propio sitio.')}`
+    },
+    {
+      slug: 'terminos',
+      label: 'Términos y aviso técnico',
+      title: 'Términos de uso y aviso técnico | FuelTech Master',
+      description: 'Condiciones de uso de FuelTech Master, límites de responsabilidad sobre los datos técnicos publicados, normas para comentarios y propiedad intelectual.',
+      h1: 'Términos de uso y aviso técnico',
+      html: `${p(`<em style="color:#979EA7">Última actualización: ${LEGAL_UPDATED}</em>`)}
+        ${p('Al usar FuelTech Master aceptas estas condiciones. Si no estás de acuerdo con ellas, no utilices el sitio.')}
+
+        ${h2('1. Aviso técnico importante')}
+        ${p('La información publicada —presión de riel, flujos, amperajes, ubicaciones y números de parte— es de carácter <strong>orientativo y de referencia</strong>. No sustituye al manual de servicio del fabricante, a las especificaciones del proveedor de la refacción ni al criterio de un técnico calificado.')}
+        ${ul([
+          'Verifica siempre los valores contra el manual de servicio del vehículo antes de intervenir o reemplazar componentes.',
+          'Trabajar con el sistema de combustible implica riesgo de incendio y lesiones: alivia la presión, desconecta la batería y trabaja en área ventilada.',
+          'Las equivalencias de refacciones son sugerencias de compatibilidad; confirma la aplicación con el catálogo del fabricante antes de comprar o instalar.'
+        ])}
+        ${p('No asumimos responsabilidad por daños a vehículos, pérdidas económicas o lesiones derivadas del uso de esta información. La usas bajo tu propio criterio y responsabilidad.')}
+
+        ${h2('2. Servicio “tal cual”')}
+        ${p('El sitio se ofrece sin garantías de exactitud, disponibilidad o continuidad. Nos esforzamos por mantener los datos correctos y actualizados, pero pueden contener errores u omisiones. Podemos modificar, suspender o retirar cualquier parte del servicio en cualquier momento.')}
+
+        ${h2('3. Asistente de inteligencia artificial')}
+        ${p('El chat genera respuestas de forma automática y puede equivocarse o producir información incompleta. Trátalo como una ayuda de orientación, nunca como un dictamen técnico. Verifica siempre sus respuestas contra la ficha del vehículo y el manual de servicio.')}
+
+        ${h2('4. Comentarios de usuarios')}
+        ${p('Los comentarios reflejan la opinión de quien los publica, no la nuestra. Al publicar, garantizas que el contenido es tuyo y nos concedes permiso para mostrarlo en el sitio. Está prohibido publicar:')}
+        ${ul([
+          'Datos personales propios o de terceros.',
+          'Spam, publicidad no solicitada o enlaces de afiliación.',
+          'Contenido ofensivo, ilegal, o que infrinja derechos de terceros.'
+        ])}
+        ${p(`Moderamos y podemos eliminar cualquier comentario sin previo aviso. Para reportar uno, escribe a <a href="mailto:${esc(CONTACT_EMAIL)}" style="color:#E53935">${esc(CONTACT_EMAIL)}</a>.`)}
+
+        ${h2('5. Propiedad intelectual y marcas')}
+        ${p('El diseño, los textos y la organización del catálogo son propiedad de sus autores. Puedes consultar y compartir enlaces libremente; no está permitida la reproducción masiva ni el raspado automatizado del contenido. Las marcas de vehículos y de autopartes citadas pertenecen a sus respectivos titulares y se mencionan solo con fines de identificación técnica; el sitio no está afiliado a ellas.')}
+
+        ${h2('6. Publicidad')}
+        ${p('El sitio muestra anuncios de terceros para sostener su operación. No controlamos el contenido de esos anuncios ni respaldamos los productos anunciados, y no somos responsables de las transacciones que realices con los anunciantes. El tratamiento de datos publicitarios se describe en la <a href="/privacidad" style="color:#E53935">política de privacidad</a>.')}
+
+        ${h2('7. Enlaces externos')}
+        ${p('Podemos enlazar a sitios de terceros por conveniencia. No controlamos su contenido ni sus prácticas de privacidad.')}`
+    }
+  ];
+
+  // Pie legal común: AdSense exige que privacidad y contacto sean accesibles desde cualquier página.
+  const LEGAL_LINKS = [
+    ['/acerca-de', 'Acerca de'], ['/contacto', 'Contacto'],
+    ['/privacidad', 'Privacidad y cookies'], ['/terminos', 'Términos y aviso técnico']
+  ];
+  const legalFooter = () => `<footer style="max-width:820px;margin:36px auto 0;padding:20px 22px 40px;border-top:1px solid rgba(74,85,98,.35);color:#979EA7;font:400 12px/1.9 Montserrat,system-ui,sans-serif">
+      <p style="margin-bottom:6px">${LEGAL_LINKS.map(([href, label]) => `<a href="${href}" style="color:#979EA7">${label}</a>`).join(' · ')}</p>
+      <p>Datos técnicos de referencia: verifica siempre contra el manual de servicio del fabricante antes de intervenir el vehículo.</p>
+      <p style="margin-top:6px">© 2025–2026 ${esc(SITE_OWNER)}.</p>
+    </footer>`;
+
+  app.get('/:slug(acerca-de|contacto|privacidad|terminos)', async (req, res, next) => {
+    const pg = PAGES.find(x => x.slug === req.params.slug);
+    if (!pg) return next();
+    res.set('Cache-Control', 'public, max-age=3600');
+    res.type('html').send(renderShell({
+      title: pg.title, description: pg.description, canonicalPath: '/' + pg.slug, nonce: res.locals.cspNonce,
+      rootContent: `<main style="max-width:820px;margin:0 auto;padding:40px 22px 0;color:#E5E7EB;font-family:Montserrat,system-ui,sans-serif;line-height:1.7">
+        <p style="font:700 11px/1 sans-serif;letter-spacing:2px;text-transform:uppercase;color:#979EA7"><a href="/" style="color:#979EA7;text-decoration:none">FuelTech Master</a></p>
+        <h1 style="font-size:26px;margin:10px 0 18px">${pg.h1}</h1>
+        ${pg.html}
+      </main>`
+    }));
+  });
+
   /* ---------- Guías de contenido (SEO por intención de búsqueda) ----------
      Atacan lo que los mecánicos googlean todo el día: "síntomas bomba de gasolina",
      "cómo medir presión de combustible", "presión baja causas". Cada guía enlaza al catálogo. */
@@ -378,6 +588,179 @@ async function createApp() {
         { q: '¿Por qué la presión de combustible está baja?', a: 'Las causas más comunes son: cedazo/filtro tapado, bomba desgastada, regulador defectuoso, caída de voltaje en el circuito de la bomba, y líneas obstruidas o con fuga.' },
         { q: '¿Cómo saber si es la bomba o un problema eléctrico?', a: 'Mide el voltaje en el conector de la bomba mientras trabaja. Si el voltaje es bajo, el problema es del circuito (cable, relé, conector), no de la bomba.' }
       ]
+    },
+    {
+      slug: 'presion-de-combustible-alta',
+      label: 'Presión alta: causas',
+      title: 'Presión de combustible alta: causas, síntomas y diagnóstico | FuelTech Master',
+      description: 'Presión de riel por encima de especificación: retorno obstruido, regulador trabado, vacío desconectado o bomba sin control. Síntomas de mezcla rica y cómo diagnosticar cada causa.',
+      h1: 'Presión de combustible alta: causas y diagnóstico',
+      html: `<p style="color:#B7BFC9">Se habla mucho de presión baja y casi nada de presión alta, pero es igual de dañina: con exceso de presión los inyectores entregan más combustible del que la computadora calcula, y el motor trabaja rico sin que aparezca una falla evidente al principio.</p>
+        <h2 style="font-size:17px;color:#E53935;margin-top:22px">Cómo se manifiesta</h2>
+        <ul style="padding-left:20px">
+          <li><strong>Consumo elevado</strong> sin causa aparente y olor a gasolina en el escape.</li>
+          <li><strong>Humo negro</strong> y códigos de mezcla rica (P0172 / P0175) o de banda de combustible negativa.</li>
+          <li><strong>Marcha irregular en frío</strong>, tirones y, con el tiempo, bujías carbonizadas y catalizador dañado.</li>
+          <li><strong>Arranque difícil en caliente</strong> por exceso de combustible en el múltiple.</li>
+        </ul>
+        <h2 style="font-size:17px;color:#E53935;margin-top:22px">Causas más frecuentes</h2>
+        <ul style="padding-left:20px">
+          <li><strong>Línea de retorno obstruida o aplastada.</strong> En sistemas con retorno, si el combustible no puede volver al tanque la presión sube. Es la causa número uno.</li>
+          <li><strong>Regulador de presión trabado en cerrado.</strong> No permite el desahogo; se confirma comparando la lectura con y sin vacío.</li>
+          <li><strong>Manguera de vacío del regulador desconectada, rota o tapada.</strong> Sin la señal de vacío el regulador mantiene la presión más alta de lo debido en ralentí. Es una revisión de treinta segundos y se pasa por alto constantemente.</li>
+          <li><strong>Filtro instalado al revés</strong> o de aplicación incorrecta, restringiendo el retorno.</li>
+          <li><strong>Módulo o bomba de repuesto con regulación distinta a la original.</strong> Muy común al montar una pila genérica: entrega más presión de la que el sistema espera.</li>
+        </ul>
+        <h2 style="font-size:17px;color:#E53935;margin-top:22px">El orden de diagnóstico</h2>
+        <p style="color:#B7BFC9">Con el manómetro conectado y el motor en ralentí, desconecta la manguera de vacío del regulador: la presión debe subir unos 5–10 PSI. Si no cambia nada, el regulador o su señal de vacío están en falla. Después pincha o desconecta con cuidado la línea de retorno para ver si la presión reacciona; si no baja, la restricción está en el retorno. Contrasta siempre la lectura con el <a href="/vehiculos" style="color:#E53935">valor de tu vehículo</a>: “alta” significa por encima del rango de ese modelo, no de un número general.</p>
+        <p style="color:#B7BFC9">En motores de <a href="/guia/inyeccion-gdi-vs-mfi-presion" style="color:#E53935">inyección directa (GDI)</a> el diagnóstico es distinto: la presión la controla la ECU y una lectura alta suele ser un problema de sensor o de mando, no mecánico.</p>`,
+      faq: [
+        { q: '¿Qué pasa si la presión de combustible es muy alta?', a: 'Los inyectores entregan más combustible del calculado y el motor trabaja rico: aumenta el consumo, aparece humo negro, códigos P0172/P0175, bujías carbonizadas y a la larga se daña el catalizador.' },
+        { q: '¿Por qué sube la presión de combustible?', a: 'Las causas más comunes son línea de retorno obstruida, regulador de presión trabado en cerrado, manguera de vacío del regulador desconectada o rota, filtro mal instalado y bombas o módulos de repuesto con regulación distinta a la original.' }
+      ]
+    },
+    {
+      slug: 'regulador-de-presion-de-combustible',
+      label: 'Regulador: cómo probarlo',
+      title: 'Regulador de presión de combustible: cómo funciona y cómo probarlo | FuelTech Master',
+      description: 'Qué hace el regulador de presión, diferencias entre sistemas con y sin retorno, y tres pruebas para saber si está fallando antes de cambiarlo.',
+      h1: 'Regulador de presión de combustible: cómo probarlo',
+      html: `<p style="color:#B7BFC9">El regulador es el componente que decide a qué presión llega el combustible a los inyectores. La bomba siempre empuja de más; el regulador desahoga el sobrante para mantener el valor correcto. Cuando falla, la presión se va por arriba o por abajo y el diagnóstico se confunde fácilmente con una bomba muerta.</p>
+        <h2 style="font-size:17px;color:#E53935;margin-top:22px">Con retorno y sin retorno</h2>
+        <ul style="padding-left:20px">
+          <li><strong>Con retorno (sistemas más antiguos).</strong> El regulador va en el riel y devuelve el sobrante al tanque por una segunda línea. Suele tener una manguera de vacío del múltiple: al acelerar cae el vacío y la presión sube, compensando la carga del motor.</li>
+          <li><strong>Sin retorno (returnless, la mayoría de los modernos).</strong> El regulador está dentro del módulo, en el tanque. No hay línea de retorno ni manguera de vacío, y la presión se mantiene constante. Aquí el regulador casi nunca se vende suelto: viene integrado en el módulo.</li>
+        </ul>
+        <p style="color:#B7BFC9">Saber cuál tiene el vehículo cambia por completo la prueba. Consulta la ficha de tu modelo en el <a href="/vehiculos" style="color:#E53935">catálogo</a> antes de buscar un regulador que quizá no exista por separado.</p>
+        <h2 style="font-size:17px;color:#E53935;margin-top:22px">Tres pruebas concretas</h2>
+        <ol style="padding-left:20px">
+          <li><strong>Prueba de vacío (solo con retorno).</strong> Con el motor en ralentí y el manómetro conectado, desconecta la manguera de vacío del regulador. La presión debe subir de inmediato unos 5–10 PSI. Si no se mueve, el regulador está trabado o el diafragma está roto.</li>
+          <li><strong>Prueba de gasolina en la manguera de vacío.</strong> Quita la manguera y mírala por dentro. Si tiene combustible o huele a gasolina, el diafragma del regulador está perforado y está mandando combustible al múltiple: cámbialo.</li>
+          <li><strong>Prueba de retención.</strong> Apaga el motor y observa el manómetro. Una caída rápida indica fuga por el regulador, por la válvula check de la bomba o por un inyector. Pinza la línea de retorno: si la presión ahora se sostiene, el que fuga es el regulador.</li>
+        </ol>
+        <h2 style="font-size:17px;color:#E53935;margin-top:22px">Antes de cambiarlo</h2>
+        <p style="color:#B7BFC9">Un regulador defectuoso y un <a href="/guia/presion-de-combustible-baja" style="color:#E53935">cedazo tapado</a> dan lecturas parecidas. Descarta primero filtro y <a href="/guia/voltaje-circuito-bomba-de-gasolina" style="color:#E53935">voltaje en el circuito de la bomba</a>, que son más baratos de revisar, y compara siempre contra la especificación del fabricante.</p>`,
+      faq: [
+        { q: '¿Cómo saber si el regulador de presión de combustible está malo?', a: 'Desconecta su manguera de vacío con el motor en ralentí: la presión debe subir 5–10 PSI. Si no cambia, o si encuentras gasolina dentro de la manguera de vacío, el regulador está fallando.' },
+        { q: '¿Dónde está el regulador de presión de combustible?', a: 'En sistemas con retorno va en el riel de inyectores, con una manguera de vacío conectada. En sistemas sin retorno está integrado dentro del módulo, en el tanque, y normalmente se reemplaza junto con el módulo completo.' }
+      ]
+    },
+    {
+      slug: 'voltaje-circuito-bomba-de-gasolina',
+      label: 'Voltaje de la bomba',
+      title: 'Voltaje y caída de tensión en el circuito de la bomba de gasolina | FuelTech Master',
+      description: 'Cómo medir voltaje y caída de tensión en el circuito de la bomba de combustible, por qué una bomba buena entrega poca presión y cómo revisar relé, tierra y conectores.',
+      h1: 'Voltaje en el circuito de la bomba: la prueba que evita cambios innecesarios',
+      html: `<p style="color:#B7BFC9">Muchas bombas devueltas como “defectuosas” estaban perfectamente bien: recibían 9 voltios en lugar de 12. Una bomba alimentada con voltaje bajo gira lento, entrega menos presión y menos flujo, y da exactamente los mismos síntomas que una bomba desgastada. Esta prueba toma cinco minutos y evita tirar el dinero.</p>
+        <h2 style="font-size:17px;color:#E53935;margin-top:22px">Medir voltaje en el conector</h2>
+        <p style="color:#B7BFC9">Con el multímetro en voltaje DC, mide entre el positivo y la tierra del conector de la bomba <strong>mientras la bomba está trabajando</strong> (llave en ON los primeros segundos, o con el motor encendido). Una medición con la bomba apagada no sirve de nada: el problema aparece solo bajo carga.</p>
+        <ul style="padding-left:20px">
+          <li><strong>Menos de 0.5 V de diferencia</strong> respecto al voltaje de batería: circuito sano.</li>
+          <li><strong>Entre 0.5 y 1 V de diferencia:</strong> hay resistencia, conviene revisar conectores y tierra.</li>
+          <li><strong>Más de 1 V de diferencia:</strong> falla clara en el circuito. No cambies la bomba todavía.</li>
+        </ul>
+        <h2 style="font-size:17px;color:#E53935;margin-top:22px">Prueba de caída de tensión</h2>
+        <p style="color:#B7BFC9">Es la forma correcta de localizar dónde se pierde el voltaje. Con el circuito energizado y la bomba trabajando, pon las puntas del multímetro en los dos extremos del tramo que sospechas (por ejemplo, positivo de batería y positivo del conector de la bomba). Lo que marque el multímetro es lo que ese tramo se está “comiendo”. Repite del lado de tierra: entre el negativo de batería y el pin de tierra de la bomba no deberías tener más de 0.2 V.</p>
+        <h2 style="font-size:17px;color:#E53935;margin-top:22px">Dónde suele estar la falla</h2>
+        <ul style="padding-left:20px">
+          <li><strong>Conector de la bomba quemado o con los pines flojos.</strong> Es el sospechoso más común, sobre todo si el vehículo ya tuvo un cambio de bomba antes.</li>
+          <li><strong>Relé de la bomba con contactos picados.</strong> Prueba puenteando o sustituyendo por un relé idéntico del mismo vehículo.</li>
+          <li><strong>Tierra oxidada o mal apretada</strong> en el chasis o en el propio módulo.</li>
+          <li><strong>Empalmes anteriores mal hechos</strong>, cinta en lugar de soldadura, o cable de calibre menor al original.</li>
+          <li><strong>Fusible con corrosión</strong> en el portafusible, que mide continuidad pero cae bajo carga.</li>
+        </ul>
+        <h2 style="font-size:17px;color:#E53935;margin-top:22px">La secuencia que funciona</h2>
+        <p style="color:#B7BFC9">Mide <a href="/guia/como-medir-la-presion-de-combustible" style="color:#E53935">presión de combustible</a> primero. Si está baja, mide voltaje en la bomba antes de desarmar el tanque. Si el voltaje es correcto y la presión sigue baja, entonces sí revisa <a href="/guia/presion-de-combustible-baja" style="color:#E53935">cedazo, filtro y regulador</a>, y por último la bomba. Cambiar una bomba en un circuito con caída de tensión solo repite la falla: la bomba nueva también trabajará forzada y durará menos.</p>`,
+      faq: [
+        { q: '¿Cuánto voltaje debe llegar a la bomba de gasolina?', a: 'Prácticamente el mismo que el de la batería. Con la bomba trabajando, la diferencia entre el voltaje de batería y el que llega al conector no debe superar 0.5 V; más de 1 V indica una falla en el circuito.' },
+        { q: '¿Por qué una bomba nueva sigue dando presión baja?', a: 'Casi siempre por caída de tensión en el circuito: conector quemado, relé con contactos picados, tierra oxidada o un empalme mal hecho. La bomba gira lento y entrega menos presión aunque esté nueva.' }
+      ]
+    },
+    {
+      slug: 'inyeccion-gdi-vs-mfi-presion',
+      label: 'GDI vs MFI',
+      title: 'GDI vs MFI: por qué la presión de combustible no se mide igual | FuelTech Master',
+      description: 'Diferencias entre inyección directa (GDI) e inyección a puerto (MFI/TBI): presiones de trabajo, bomba de baja y de alta, y qué precauciones tomar al diagnosticar cada sistema.',
+      h1: 'GDI vs MFI: por qué la presión no se mide igual',
+      html: `<p style="color:#B7BFC9">Conectar un manómetro convencional a un motor de inyección directa es un error que se paga caro. Los sistemas GDI trabajan con presiones cientos de veces mayores y con un circuito completamente distinto. Antes de tocar nada, hay que saber qué sistema tienes enfrente.</p>
+        <h2 style="font-size:17px;color:#E53935;margin-top:22px">Inyección a puerto: TBI y MFI</h2>
+        <p style="color:#B7BFC9">El inyector rocía en el múltiple de admisión, antes de la válvula. Una sola bomba eléctrica en el tanque genera toda la presión del sistema, que se mantiene en un rango bajo y constante: por lo general entre 30 y 60 PSI según el modelo, y menos aún en los TBI antiguos. Es el sistema para el que sirve el manómetro clásico con adaptadores, y el que cubren la mayoría de las fichas del catálogo.</p>
+        <h2 style="font-size:17px;color:#E53935;margin-top:22px">Inyección directa: GDI</h2>
+        <p style="color:#B7BFC9">El inyector rocía dentro de la cámara de combustión, contra la presión de compresión, así que necesita muchísima más fuerza. El circuito tiene <strong>dos etapas</strong>:</p>
+        <ul style="padding-left:20px">
+          <li><strong>Baja presión.</strong> La bomba eléctrica del tanque —la pila que sí puedes reemplazar— alimenta a la bomba de alta con un valor moderado, típicamente entre 50 y 90 PSI.</li>
+          <li><strong>Alta presión.</strong> Una bomba mecánica accionada por el árbol de levas eleva la presión a valores que van de 500 a más de 2 500 PSI, controlados electrónicamente por la ECU según la carga.</li>
+        </ul>
+        <p style="color:#B7BFC9">La etapa de alta <strong>no se mide con manómetro convencional</strong>: se lee con escáner, en el PID de presión de riel, comparando el valor deseado contra el valor real. Abrir esa parte del circuito con el motor caliente es peligroso.</p>
+        <h2 style="font-size:17px;color:#E53935;margin-top:22px">Qué significa esto al diagnosticar</h2>
+        <ul style="padding-left:20px">
+          <li>En GDI, un arranque difícil o una pérdida de potencia puede venir de la bomba del tanque (baja) o de la bomba de alta. Empieza midiendo la baja, que es accesible y barata.</li>
+          <li>Si la baja está en especificación y el escáner muestra que la presión real no alcanza la deseada, el problema está en la bomba de alta, su válvula de control o el lóbulo del árbol de levas que la acciona.</li>
+          <li>Las pilas de repuesto para GDI deben cumplir el valor de baja presión exacto: una pila genérica de menor entrega deja sin alimentación a la bomba de alta y provoca fallas intermitentes difíciles de rastrear.</li>
+          <li>Nunca uses el rango de un motor MFI como referencia para uno GDI, ni al revés. En el <a href="/vehiculos" style="color:#E53935">catálogo</a> cada ficha indica el tipo de inyección junto al valor de presión, precisamente por esto.</li>
+        </ul>`,
+      faq: [
+        { q: '¿Cuál es la diferencia entre GDI y MFI?', a: 'En MFI el inyector rocía en el múltiple de admisión y una sola bomba del tanque genera toda la presión (30–60 PSI típicos). En GDI el inyector rocía dentro de la cámara y hay dos etapas: una bomba eléctrica de baja en el tanque y una bomba mecánica de alta accionada por el árbol de levas que llega a cientos o miles de PSI.' },
+        { q: '¿Se puede medir la presión de un motor GDI con manómetro?', a: 'Solo la etapa de baja presión. La etapa de alta se lee con escáner en el PID de presión de riel, comparando el valor deseado contra el real; abrirla con manómetro convencional es peligroso.' }
+      ]
+    },
+    {
+      slug: 'como-cambiar-la-pila-de-gasolina',
+      label: 'Cambiar la pila paso a paso',
+      title: 'Cómo cambiar la pila (bomba) de gasolina paso a paso | FuelTech Master',
+      description: 'Procedimiento seguro para reemplazar una pila o módulo de gasolina: alivio de presión, acceso al tanque, cambio del cedazo, precauciones eléctricas y verificación final.',
+      h1: 'Cómo cambiar la pila de gasolina paso a paso',
+      html: `<p style="color:#B7BFC9">Antes de empezar: confirma con el manómetro que la bomba es realmente la culpable. Una <a href="/guia/presion-de-combustible-baja" style="color:#E53935">presión baja</a> también la provoca un cedazo tapado, un regulador en falla o una <a href="/guia/voltaje-circuito-bomba-de-gasolina" style="color:#E53935">caída de voltaje</a>, y todas son más baratas de resolver.</p>
+        <h2 style="font-size:17px;color:#E53935;margin-top:22px">Seguridad primero</h2>
+        <ul style="padding-left:20px">
+          <li>Trabaja en área ventilada, sin llamas, chispas ni herramientas eléctricas cerca del tanque abierto.</li>
+          <li>Ten un extintor a la mano. No es una formalidad.</li>
+          <li>Alivia la presión del sistema antes de desconectar cualquier línea: quita el fusible o el relé de la bomba y deja que el motor se apague solo.</li>
+          <li>Desconecta el negativo de la batería antes de manipular el conector del módulo.</li>
+          <li>Trabaja con el tanque lo más vacío posible: pesa menos y hay menos vapor.</li>
+        </ul>
+        <h2 style="font-size:17px;color:#E53935;margin-top:22px">El procedimiento</h2>
+        <ol style="padding-left:20px">
+          <li><strong>Localiza el acceso.</strong> Muchos vehículos tienen una tapa de registro bajo el asiento trasero o en el piso de la cajuela; otros obligan a bajar el tanque. La ficha de tu modelo en el <a href="/vehiculos" style="color:#E53935">catálogo</a> indica la ubicación del módulo.</li>
+          <li><strong>Limpia alrededor de la tapa</strong> antes de abrirla. La tierra que cae dentro del tanque termina en el cedazo nuevo.</li>
+          <li><strong>Desconecta el conector eléctrico y las líneas</strong> de alimentación y retorno. Marca cuál es cuál si no están codificadas.</li>
+          <li><strong>Retira el anillo de seguridad</strong> con la herramienta adecuada o golpes suaves y controlados. Saca el módulo con cuidado: el brazo del flotador se dobla con nada.</li>
+          <li><strong>Compara la pieza nueva contra la vieja</strong> antes de instalar: altura del módulo, posición de las salidas, tipo de conector y polaridad. Una pila correcta en especificación pero con conector distinto no sirve.</li>
+          <li><strong>Cambia el cedazo (filtro previo) siempre.</strong> Es barato y es la causa de que la bomba nueva se esfuerce y muera antes de tiempo.</li>
+          <li><strong>Sustituye el empaque o junta del módulo.</strong> Reutilizar el viejo es la fuente habitual de olor a gasolina después del trabajo.</li>
+          <li><strong>Monta, conecta y purga.</strong> Antes de arrancar, da varias veces llave a ON durante tres segundos para que la bomba llene el riel.</li>
+        </ol>
+        <h2 style="font-size:17px;color:#E53935;margin-top:22px">Verificación final</h2>
+        <p style="color:#B7BFC9">Conecta el manómetro y confirma que la presión coincide con la especificación de tu vehículo, tanto con llave en ON como en ralentí. Haz una <a href="/guia/como-medir-la-presion-de-combustible" style="color:#E53935">prueba de retención</a> al apagar y revisa que no haya fugas en la tapa del módulo antes de devolver el vehículo. Consulta el manual de servicio del fabricante para pares de apriete y particularidades del modelo.</p>`,
+      faq: [
+        { q: '¿Hay que cambiar el cedazo al cambiar la bomba de gasolina?', a: 'Sí, siempre. El cedazo tapado hace que la bomba nueva trabaje forzada, entregue menos presión y dure mucho menos. Es una pieza barata y es parte del trabajo bien hecho.' },
+        { q: '¿Cómo se alivia la presión antes de cambiar la bomba?', a: 'Quita el fusible o el relé de la bomba de combustible y arranca el motor hasta que se apague solo. Después desconecta el negativo de la batería antes de manipular el conector del módulo.' }
+      ]
+    },
+    {
+      slug: 'que-pila-de-gasolina-le-queda-a-mi-carro',
+      label: 'Elegir la pila correcta',
+      title: 'Qué pila de gasolina le queda a mi carro: cómo elegir la correcta | FuelTech Master',
+      description: 'Cómo elegir una pila o bomba de gasolina compatible: presión, flujo LPH, amperaje, medidas físicas, conector y polaridad. Qué mirar antes de comprar una alternativa genérica.',
+      h1: 'Qué pila de gasolina le queda a mi carro',
+      html: `<p style="color:#B7BFC9">“¿Esta le queda?” es la pregunta que más se escucha en el mostrador de una refaccionaria. La respuesta corta: no basta con que entre. Una pila compatible tiene que coincidir en cinco cosas, y si falla una sola, el trabajo se devuelve.</p>
+        <h2 style="font-size:17px;color:#E53935;margin-top:22px">Los cinco criterios</h2>
+        <ol style="padding-left:20px">
+          <li><strong>Presión de trabajo.</strong> La pila debe sostener el rango que pide el vehículo con margen. Una bomba de 45 PSI en un sistema que exige 58 PSI da síntomas de falla desde el primer día.</li>
+          <li><strong>Flujo (LPH).</strong> Litros por hora. Un motor más grande o con mayor demanda necesita más caudal aunque la presión sea la misma. Quedarse corto se nota solo bajo carga: en subida o a alta velocidad.</li>
+          <li><strong>Amperaje.</strong> Una pila que consume más de lo que el circuito original fue diseñado para entregar calienta el conector y termina quemándolo. Compara el consumo contra el del original.</li>
+          <li><strong>Medidas físicas y montaje.</strong> Diámetro, largo del cuerpo, posición de entrada y salida, y altura total dentro del módulo. Una pila más larga no deja cerrar la tapa; una más corta deja el pickup lejos del fondo y el motor se queda sin combustible con el tanque a un cuarto.</li>
+          <li><strong>Conector y polaridad.</strong> Invertir la polaridad daña la bomba de inmediato. Si el conector no es el mismo, hay que confirmar cuál pin es positivo antes de improvisar un adaptador.</li>
+        </ol>
+        <h2 style="font-size:17px;color:#E53935;margin-top:22px">Original, módulo completo o pila suelta</h2>
+        <p style="color:#B7BFC9">Cambiar solo la pila dentro del módulo es más barato y suele ser suficiente. Pero si el módulo tiene el regulador integrado en falla, la carcasa fisurada, el flotador dañado o el conector quemado, el módulo completo sale mejor a la larga. En sistemas <strong>sin retorno</strong>, donde el regulador vive dentro del módulo, muchas veces no hay alternativa.</p>
+        <h2 style="font-size:17px;color:#E53935;margin-top:22px">Sobre las equivalencias</h2>
+        <p style="color:#B7BFC9">En la ficha de cada vehículo del <a href="/vehiculos" style="color:#E53935">catálogo</a> encontrarás el número de parte original y las alternativas compatibles con su presión, flujo y amperaje. Úsalas como punto de partida y confirma la aplicación con el catálogo del fabricante antes de comprar: los proveedores actualizan aplicaciones y a veces un mismo modelo cambió de bomba a mitad de año de producción.</p>
+        <p style="color:#B7BFC9">Y una advertencia práctica: “universal” no significa compatible. Una pila universal puede dar la presión correcta y aun así fallar por medidas, conector o amperaje.</p>`,
+      faq: [
+        { q: '¿Cómo sé qué bomba de gasolina le queda a mi carro?', a: 'Debe coincidir en presión de trabajo, flujo (LPH), amperaje, medidas físicas de montaje y conector con polaridad correcta. Que entre físicamente no significa que sea compatible.' },
+        { q: '¿Es mejor cambiar solo la pila o el módulo completo?', a: 'Cambiar solo la pila es más barato y suele bastar. Conviene el módulo completo si el regulador integrado falla, la carcasa está fisurada, el flotador está dañado o el conector quemado; en sistemas sin retorno a menudo es la única opción.' }
+      ]
     }
   ];
   const guideBody = (g) => `<main style="max-width:760px;margin:0 auto;padding:40px 22px;color:#E5E7EB;font-family:Montserrat,system-ui,sans-serif;line-height:1.7">
@@ -414,6 +797,7 @@ async function createApp() {
     const rows = await db.all(`SELECT v.id, b.name AS brand, v.model, v.year_from, v.year_to
       FROM vehicles v JOIN brands b ON b.id = v.brand_id`);
     const locs = [`${BASE_URL}/`, `${BASE_URL}/vehiculos`, `${BASE_URL}/guias`,
+      ...PAGES.map(pg => `${BASE_URL}/${pg.slug}`),
       ...GUIDES.map(g => `${BASE_URL}/guia/${g.slug}`),
       ...rows.map(v => `${BASE_URL}/vehiculo/${vehicleSlug(v)}`)];
     res.type('application/xml').set('Cache-Control', 'public, max-age=3600').send(
@@ -424,6 +808,14 @@ async function createApp() {
   app.get('/robots.txt', async (req, res) => {
     res.type('text/plain').set('Cache-Control', 'public, max-age=3600').send(
       `User-agent: *\nAllow: /\nDisallow: /api/\nDisallow: /admin\n\nSitemap: ${BASE_URL}/sitemap.xml\n`);
+  });
+
+  /* ads.txt — declara ante los compradores de publicidad quién puede vender este
+     inventario. Google marca la cuenta como "ads.txt no encontrado" si falta. */
+  app.get('/ads.txt', (req, res, next) => {
+    if (!ADSENSE_CLIENT) return next();
+    res.type('text/plain').set('Cache-Control', 'public, max-age=3600')
+      .send(`google.com, ${ADSENSE_CLIENT.replace(/^ca-/, '')}, DIRECT, f08c47fec0942fa0\n`);
   });
 
   // Panel de administración (protegido por contraseña en el API; ver /api/admin/*)
@@ -444,7 +836,7 @@ async function createApp() {
         brands: await db.all(`SELECT id, name FROM brands ORDER BY name`, ),
         injection_types: await db.all(`SELECT id, code, name, description FROM injection_types ORDER BY id`, ),
         year_range: await db.get(`SELECT MIN(year_from) min, MAX(year_to) max FROM vehicles`, ),
-        total_vehicles: await db.get(`SELECT COUNT(*) c FROM vehicles`, ).c
+        total_vehicles: (await db.get(`SELECT COUNT(*) c FROM vehicles`))?.c || 0
       };
     }
     res.set('Cache-Control', 'public, max-age=300');
@@ -642,7 +1034,9 @@ async function createApp() {
   let pumpsCache = null;
   app.get('/api/pumps', catalogLimiter, async (req, res) => {
     if (!pumpsCache) {
-      pumpsCache = await db.all(`SELECT * FROM fuel_pumps ORDER BY manufacturer, code`, )
+      // .map() va sobre la fila resuelta, no sobre la promesa: sin los paréntesis
+      // esto lanzaba TypeError dentro del handler async y la petición quedaba colgada.
+      pumpsCache = (await db.all(`SELECT * FROM fuel_pumps ORDER BY manufacturer, code`))
         .map(p => ({ ...p, max_bar_direct: psiToBar(p.max_psi_direct) }));
     }
     res.set('Cache-Control', 'public, max-age=300');
@@ -808,10 +1202,10 @@ ${dbContext}`;
       pumps: await db.all('SELECT id, code, manufacturer FROM fuel_pumps ORDER BY manufacturer, code', ),
       enums: { body_types: BODY_TYPES, zones: ZONES, assembly: ASSEMBLY },
       counts: {
-        vehicles: await db.get('SELECT COUNT(*) c FROM vehicles', ).c,
-        brands: await db.get('SELECT COUNT(*) c FROM brands', ).c,
-        pumps: await db.get('SELECT COUNT(*) c FROM fuel_pumps', ).c,
-        unverified: await db.get('SELECT COUNT(*) c FROM vehicles WHERE data_verified = 0', ).c
+        vehicles: (await db.get('SELECT COUNT(*) c FROM vehicles'))?.c || 0,
+        brands: (await db.get('SELECT COUNT(*) c FROM brands'))?.c || 0,
+        pumps: (await db.get('SELECT COUNT(*) c FROM fuel_pumps'))?.c || 0,
+        unverified: (await db.get('SELECT COUNT(*) c FROM vehicles WHERE data_verified = 0'))?.c || 0
       }
     });
   });
@@ -1005,6 +1399,7 @@ ${dbContext}`;
 if (require.main === module) {
   (async () => {
     try {
+      const statsDb = defaultStatsDb;
       await statsDb.exec(`
         CREATE TABLE IF NOT EXISTS visit_days (
           day          TEXT NOT NULL,

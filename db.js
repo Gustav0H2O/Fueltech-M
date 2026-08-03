@@ -124,4 +124,4 @@ class DBAdapter {
 const db = new DBAdapter(sqliteDb);
 const statsDb = new DBAdapter(sqliteStats);
 
-module.exports = { db, statsDb, pgPool, USE_PG };
+module.exports = { db, statsDb, pgPool, USE_PG, DBAdapter };

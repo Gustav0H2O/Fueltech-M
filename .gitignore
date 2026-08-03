@@ -11,3 +11,5 @@ stats.db-wal
 stats.db-shm
 
 nul
+
+test/screenshots/

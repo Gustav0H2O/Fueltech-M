@@ -890,6 +890,8 @@ function App() {
           <div class="footer-brand">FUEL<span>TECH</span> MASTER</div>
           <div class="footer-desc">Catálogo técnico de módulos y pilas de gasolina</div>
           <div class="footer-desc" style=${{ marginTop: '5px' }}><a href="/guias" style=${{ color: 'var(--muted)', textDecoration: 'underline' }}>Guías de diagnóstico</a> · <a href="/vehiculos" style=${{ color: 'var(--muted)', textDecoration: 'underline' }}>Catálogo completo</a></div>
+          <div class="footer-desc" style=${{ marginTop: '4px' }}><a href="/acerca-de" style=${{ color: 'var(--muted)', textDecoration: 'underline' }}>Acerca de</a> · <a href="/contacto" style=${{ color: 'var(--muted)', textDecoration: 'underline' }}>Contacto</a> · <a href="/privacidad" style=${{ color: 'var(--muted)', textDecoration: 'underline' }}>Privacidad y cookies</a> · <a href="/terminos" style=${{ color: 'var(--muted)', textDecoration: 'underline' }}>Términos</a></div>
+          <div class="footer-desc" style=${{ marginTop: '5px', opacity: .8 }}>Datos técnicos de referencia: verifica siempre contra el manual de servicio del fabricante antes de intervenir el vehículo.</div>
           <div class="footer-copy">© 2025–2026 FuelTech Master. Todos los derechos reservados.</div>
           <div class="dev-contact">
             <${Icon} name="Mail" size=${13} />
@@ -959,10 +961,11 @@ function App() {
         <h3 style=${{fontSize: '13px', color: 'var(--text)', marginBottom: '8px', display: 'flex', alignItems: 'center', gap: '8px'}}>
           <${Icon} name="ShieldCheck" size=${16} color="var(--red)" /> Privacidad y Cookies
         </h3>
-        <p style=${{fontSize: '11.5px', color: 'var(--muted)', marginBottom: '14px', lineHeight: 1.4}}>
-          Utilizamos almacenamiento local para recordar tus preferencias y estadísticas anónimas (respetamos Do-Not-Track). Al continuar navegando, aceptas nuestra política.
+        <p style=${{fontSize: '11.5px', color: 'var(--muted)', marginBottom: '14px', lineHeight: 1.45}}>
+          Usamos almacenamiento local para tus preferencias, estadísticas anónimas (respetamos Do-Not-Track) y cookies de terceros —incluido Google— para mostrar y medir anuncios.
+          Detalle y cómo desactivarlos en la <a href="/privacidad" style=${{color: 'var(--red)'}}>política de privacidad y cookies</a>.
         </p>
-        <button type="button" onClick=${acceptPrivacy} style=${{background: 'var(--red)', color: '#fff', border: 'none', padding: '8px 16px', borderRadius: '4px', cursor: 'pointer', fontSize: '11.5px', fontWeight: 600, width: '100%'}}>Entendido</button>
+        <button type="button" onClick=${acceptPrivacy} style=${{background: 'var(--red)', color: '#fff', border: 'none', padding: '8px 16px', borderRadius: '4px', cursor: 'pointer', fontSize: '11.5px', fontWeight: 600, width: '100%'}}>Aceptar y continuar</button>
       </div>`}
     </div>`;
 }

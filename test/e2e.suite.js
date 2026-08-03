@@ -5,7 +5,8 @@ const assert = require('node:assert/strict');
 const path = require('path');
 const fs = require('node:fs');
 const Database = require('better-sqlite3');
-const { createApp } = require('../server');
+const { createApp } = require('../server-pg');
+const { DBAdapter } = require('../db');
 const { seedTestDb } = require('./seed-test');
 const puppeteer = require('puppeteer');
 
@@ -25,7 +26,7 @@ async function startServer() {
   ) WITHOUT ROWID;
   CREATE TABLE IF NOT EXISTS meta (key TEXT PRIMARY KEY, value TEXT NOT NULL) WITHOUT ROWID;`);
 
-  const app = createApp(db, statsDb);
+  const app = await createApp(new DBAdapter(db), new DBAdapter(statsDb));
   return new Promise((resolve, reject) => {
     const server = app.listen(0, '127.0.0.1', () => {
       const { port } = server.address();

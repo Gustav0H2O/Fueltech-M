@@ -3,12 +3,15 @@
 const { describe, it, before, after } = require('node:test');
 const assert = require('node:assert/strict');
 const Database = require('better-sqlite3');
-const { createApp } = require('../server');
+const { createApp } = require('../server-pg');
+const { DBAdapter } = require('../db');
 const { seedTestDb } = require('./seed-test');
 
-/* ---------- Helper: arrancar servidor en puerto aleatorio ---------- */
+/* ---------- Helper: arrancar servidor en puerto aleatorio ----------
+   Se prueba el MISMO archivo que corre en producción (server-pg.js), envolviendo
+   las bases en memoria en el adaptador async que espera la app. */
 async function withServer(db, statsDb) {
-  const app = createApp(db, statsDb);
+  const app = await createApp(new DBAdapter(db), new DBAdapter(statsDb));
   return new Promise((resolve, reject) => {
     const server = app.listen(0, '127.0.0.1', () => {
       const { port } = server.address();
@@ -446,7 +449,7 @@ describe('FuelTech Master API', () => {
 
 /* ===================== Tests de toInt ===================== */
 describe('toInt (función utilitaria)', () => {
-  const { toInt } = require('../server');
+  const { toInt } = require('../server-pg');
 
   it('parsea enteros válidos', () => {
     assert.equal(toInt('42', 0, 100), 42);
@@ -471,7 +474,7 @@ describe('toInt (función utilitaria)', () => {
 
 /* ===================== Tests de psiToBar ===================== */
 describe('psiToBar (función utilitaria)', () => {
-  const { psiToBar } = require('../server');
+  const { psiToBar } = require('../server-pg');
 
   it('convierte PSI a bar correctamente', () => {
     assert.equal(psiToBar(0), 0);
