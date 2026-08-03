@@ -229,6 +229,7 @@ async function createApp(dbOverride, statsOverride) {
     }
     if (ADSENSE_CLIENT) {
       html = html.replace('</head>',
+        `<meta name="google-adsense-account" content="${encodeURIComponent(ADSENSE_CLIENT)}">` +
         `<script async src="https://pagead2.googlesyndication.com/pagead/js/adsbygoogle.js?client=${encodeURIComponent(ADSENSE_CLIENT)}" crossorigin="anonymous"></script></head>`);
     }
     if (GA_ID) {
