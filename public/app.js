@@ -92,19 +92,58 @@ function ToastStack() {
 }
 
 /* Icono Lucide montado como SVG (espera a que window.lucide esté listo).
-   Sin aria-label => decorativo (aria-hidden); con aria-label => icono con significado propio. */
-function Icon({ name, size = 16, className = '', spin = false, label }) {
+   Sin aria-label => decorativo (aria-hidden); con aria-label => icono con significado propio.
+   color se aplica al trazo vía CSS (currentColor por defecto) para que funcione
+   igual en claro y oscuro; strokeWidth pasa al SVG. */
+function Icon({ name, size = 16, className = '', spin = false, label, color, strokeWidth = 2 }) {
   const ref = useRef(null);
   useEffect(() => {
     if (!ref.current || !window.lucide || !window.lucide[name]) return;
     ref.current.innerHTML = '';
-    const attrs = { width: size, height: size };
+    const attrs = { width: size, height: size, 'stroke-width': strokeWidth };
     if (label) { attrs.role = 'img'; attrs['aria-label'] = label; }
     else attrs['aria-hidden'] = 'true';
     const svg = window.lucide.createElement(window.lucide[name], attrs);
+    if (color) svg.style.color = color;
     ref.current.appendChild(svg);
-  }, [name, size, label]);
-  return html`<span class=${'icon' + (spin ? ' spin' : '') + (className ? ' ' + className : '')} ref=${ref}></span>`;
+  }, [name, size, label, color, strokeWidth]);
+  return html`<span class=${'icon' + (spin ? ' spin' : '') + (className ? ' ' + className : '')} ref=${ref} style=${color ? { color } : null}></span>`;
+}
+
+/* ---------- Iconos de marca ----------
+   Set propio en el lenguaje de la iconografía FuelTech (trazo medio, esquinas
+   redondeadas, detalles en lima). Lucide es monocromo; para los iconos más
+   visibles de la interfaz usamos estos SVG bicolor (gris + acento lima). */
+const MARK_ICONS = {
+  Search: (s, c) => html`<svg width=${s} height=${s} viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="11" cy="11" r="7" stroke=${c} opacity=".55"/><path d="m21 21-4.3-4.3" stroke=${c} opacity=".55"/><circle cx="11" cy="11" r="2.6" fill=${c} stroke="none"/></svg>`,
+  Fuel: (s, c) => html`<svg width=${s} height=${s} viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 20V6a2 2 0 0 1 2-2h6a2 2 0 0 1 2 2v14" stroke=${c} opacity=".55"/><path d="M14 10h3a2 2 0 0 1 2 2v4a1.5 1.5 0 0 0 3 0V9l-3-3" stroke=${c} opacity=".55"/><path d="M5 20h10" stroke=${c} opacity=".55"/><path d="M12 5.5 9.5 9h5L12 12.5" stroke=${c} fill="none"/></svg>`,
+  Gauge: (s, c) => html`<svg width=${s} height=${s} viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 14 15.5 9" stroke=${c}/><circle cx="12" cy="14" r="7" stroke=${c} opacity=".55"/><path d="M12 3a9 9 0 0 1 9 9" stroke=${c} opacity=".55"/><path d="M3.6 9.5A9 9 0 0 1 12 3" stroke=${c} opacity=".55"/></svg>`,
+  Pump: (s, c) => html`<svg width=${s} height=${s} viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="7" y="3" width="10" height="18" rx="2" stroke=${c} opacity=".55"/><path d="M12 8v3" stroke=${c}/><circle cx="12" cy="14.5" r="1.6" fill=${c} stroke="none"/></svg>`,
+  Injector: (s, c) => html`<svg width=${s} height=${s} viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 3v8l-2 3v7h16v-7l-2-3V3" stroke=${c} opacity=".55"/><path d="M9 21v-4h6v4" stroke=${c} opacity=".55"/><path d="M9.5 7.5h5" stroke=${c}/><path d="M10.5 11h3" stroke=${c}/></svg>`,
+  Filter: (s, c) => html`<svg width=${s} height=${s} viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="5" y="3" width="14" height="18" rx="3" stroke=${c} opacity=".55"/><path d="M9 7.5h6" stroke=${c}/><path d="M9 12h6" stroke=${c}/><path d="M9 16.5h3" stroke=${c}/></svg>`,
+  Sensor: (s, c) => html`<svg width=${s} height=${s} viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="7" y="7" width="10" height="10" rx="2" stroke=${c} opacity=".55"/><rect x="10" y="10" width="4" height="4" fill=${c} stroke="none"/><path d="M9 2v3M15 2v3M9 19v3M15 19v3M2 9h3M2 15h3M19 9h3M19 15h3" stroke=${c} opacity=".55"/></svg>`,
+  Ecu: (s, c) => html`<svg width=${s} height=${s} viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="4" y="5" width="16" height="14" rx="2" stroke=${c} opacity=".55"/><path d="M8 9h2M8 12h2M14 9h2M14 12h2" stroke=${c}/><path d="M9.5 15.5h5" stroke=${c}/></svg>`,
+  History: (s, c) => html`<svg width=${s} height=${s} viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="8" stroke=${c} opacity=".55"/><path d="M12 8v4l2.5 1.5" stroke=${c}/><path d="M3.5 4.5 6 7M20.5 4.5 18 7" stroke=${c} opacity=".55"/></svg>`,
+  Compare: (s, c) => html`<svg width=${s} height=${s} viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3v18" stroke=${c} opacity=".55"/><path d="M7 7H4l4-4 4 4H9" stroke=${c} opacity=".55"/><path d="M17 17h3l-4 4-4-4h3" stroke=${c} opacity=".55"/><path d="M7 12h3M17 12h-3" stroke=${c}/></svg>`,
+  View3D: (s, c) => html`<svg width=${s} height=${s} viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 2 3 7v10l9 5 9-5V7Z" stroke=${c} opacity=".55"/><path d="M12 22V12M3 7l9 5 9-5" stroke=${c} opacity=".55"/><path d="M9 5l9 5" stroke=${c}/></svg>`,
+  Assistant: (s, c) => html`<svg width=${s} height=${s} viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9.5 3a7 7 0 0 0 0 14c.6 0 1.2-.1 1.8-.2L14 19v-2.5c2.9-1.2 5-4 5-7.5a7 7 0 0 0-9.5-6Z" stroke=${c} opacity=".55"/><path d="M9 9h.01M13 9h.01M9 12.5c1.5 1.2 3.5 1.2 5 0" stroke=${c}/></svg>`,
+  Favorite: (s, c) => html`<svg width=${s} height=${s} viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m12 3 2.7 5.6 6.1.8-4.5 4.3 1.1 6-5.4-2.9-5.4 2.9 1.1-6L3.2 9.4l6.1-.8Z" stroke=${c} opacity=".55"/><path d="m12 7 .9 1.9 2 .3-1.5 1.4.4 2-1.8-1-1.8 1 .4-2L9.1 9.2l2-.3Z" fill=${c} stroke="none"/></svg>`,
+  Settings: (s, c) => html`<svg width=${s} height=${s} viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="3" stroke=${c}/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.9l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.9-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1-1.6 1.7 1.7 0 0 0-1.9.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.9 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.6-1 1.7 1.7 0 0 0-.3-1.9l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.9.3h.1a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5h.1a1.7 1.7 0 0 0 1.9-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.9v.1a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1Z" stroke=${c} opacity=".55"/></svg>`,
+  Droplets: (s, c) => html`<svg width=${s} height=${s} viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M7 16.3c0-3 3-7 3-7s3 4 3 7a3 3 0 0 1-6 0Z" stroke=${c} opacity=".55"/><path d="M12 5.5c1.6-2 3.5-3.5 5-3.5" stroke=${c}/><path d="M17 8.5c1-1.3 2-2 3-2" stroke=${c}/></svg>`,
+  Zap: (s, c) => html`<svg width=${s} height=${s} viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M13 2 4 14h6l-1 8 9-12h-6Z" stroke=${c} opacity=".55"/><path d="M13 9h4" stroke=${c}/></svg>`,
+  Stethoscope: (s, c) => html`<svg width=${s} height=${s} viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 3v5a5 5 0 0 0 10 0V3" stroke=${c} opacity=".55"/><path d="M10 13v3a5 5 0 0 0 10 0v-1" stroke=${c} opacity=".55"/><circle cx="20" cy="16" r="2" stroke=${c}/><path d="M10 3v2M5 3v2" stroke=${c} opacity=".55"/></svg>`,
+  Calendar: (s, c) => html`<svg width=${s} height=${s} viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="5" width="18" height="16" rx="2" stroke=${c} opacity=".55"/><path d="M8 3v4M16 3v4M3 10h18" stroke=${c} opacity=".55"/><path d="M12 14l1.5 1.5L12 17" stroke=${c}/></svg>`,
+  Car: (s, c) => html`<svg width=${s} height=${s} viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 11 6.5 6.5A2 2 0 0 1 8.4 5h7.2a2 2 0 0 1 1.9 1.5L19 11" stroke=${c} opacity=".55"/><rect x="3" y="11" width="18" height="6" rx="2" stroke=${c} opacity=".55"/><path d="M6 14h.01M18 14h.01" stroke=${c}/></svg>`,
+  Tag: (s, c) => html`<svg width=${s} height=${s} viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 2H4a2 2 0 0 0-2 2v8l10 10 10-10Z" stroke=${c} opacity=".55"/><circle cx="7.5" cy="7.5" r="1.5" fill=${c} stroke="none"/></svg>`,
+  ArrowUpDown: (s, c) => html`<svg width=${s} height=${s} viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m7 3-4 4h3v10h2V7h3Z" stroke=${c} opacity=".55"/><path d="m17 21 4-4h-3V7h-2v10h-3Z" stroke=${c} opacity=".55"/></svg>`,
+};
+/* Icono de marca: bicolor (gris + lima). El acento usa var(--accent) que en modo
+   claro se oscurece a oliva (contraste) y el gris hereda currentColor. */
+function MarkIcon({ name, size = 16, className = '' }) {
+  const icon = MARK_ICONS[name];
+  if (!icon) return null;
+  const c = 'var(--accent)';
+  return html`<span class=${'icon mark-icon' + (className ? ' ' + className : '')}>${icon(size, c)}</span>`;
 }
 
 /* Reconstruye al cambiar de tema. Las escenas de Three.js fijan sus colores al
@@ -384,7 +423,7 @@ function VehicleDetail({ id }) {
         </div>
         ${v.notes && html`<div class="alert"><${Icon} name="AlertTriangle" size=${14} />${v.notes}</div>`}
         <div style=${{ display: 'flex', flexWrap: 'wrap', gap: '8px', marginTop: '14px' }}>
-          <button type="button" onClick=${onStar} style=${{ ...shareBtn, color: saved ? 'var(--amber)' : 'var(--muted)', borderColor: saved ? 'var(--amber-dim)' : 'var(--border-hi)' }} title=${saved ? 'Quitar de Mi Garage' : 'Guardar en Mi Garage'}><${Icon} name="Star" size=${14} /> ${saved ? 'Guardado' : 'Guardar'}</button>
+          <button type="button" onClick=${onStar} style=${{ ...shareBtn, color: saved ? 'var(--amber)' : 'var(--muted)', borderColor: saved ? 'var(--amber-dim)' : 'var(--border-hi)' }} title=${saved ? 'Quitar de Mi Garage' : 'Guardar en Mi Garage'}><${MarkIcon} name="Favorite" size=${14} /> ${saved ? 'Guardado' : 'Guardar'}</button>
           <button type="button" onClick=${shareWhatsApp} style=${shareBtn} title="Compartir esta ficha por WhatsApp"><${Icon} name="Share2" size=${14} /> Compartir</button>
           <button type="button" onClick=${shareNative} style=${shareBtn} title="Copiar enlace de esta ficha"><${Icon} name="Link2" size=${14} /> Copiar enlace</button>
           <button type="button" onClick=${() => window.print()} style=${shareBtn} title="Imprimir o guardar como PDF"><${Icon} name="Printer" size=${14} /> Imprimir / PDF</button>
@@ -568,14 +607,14 @@ function ChatBot({ vehicleId }) {
       <!-- Botón flotante -->
       <button type="button" class="chat-fab" onClick=${() => setOpen(!open)}
               aria-label=${open ? 'Cerrar chat' : 'Abrir chat de IA'}>
-        <${Icon} name=${open ? 'X' : 'BrainCircuit'} size=${22} />
+        <${MarkIcon} name="Assistant" size=${24} />
       </button>
 
       <!-- Panel de chat -->
       ${open && html`
         <div class="chat-panel" role="dialog" aria-label="Chat de asistencia automotriz">
           <div class="chat-head">
-            <${Icon} name="BrainCircuit" size=${18} label="Asistente IA" />
+            <${MarkIcon} name="Assistant" size=${18} />
             <span>Asistente Técnico</span>
             ${remaining !== null && html`<span class="chat-remaining">${remaining}/3</span>`}
             <button type="button" class="chat-close" onClick=${() => setOpen(false)} aria-label="Cerrar">
@@ -591,7 +630,7 @@ function ChatBot({ vehicleId }) {
             `}
             ${messages.length === 0 && !limitReached && html`
               <div class="chat-empty">
-                <${Icon} name="BrainCircuit" size=${28} />
+                <div class="chat-empty-logo"><${LogoMark} /></div>
                 <p>Pregúntame sobre especificaciones técnicas de combustible</p>
                 <div class="chat-suggestions">
                   <button type="button" onClick=${() => send('¿Qué PSI necesita un Tsuru III?')}>¿PSI del Tsuru?</button>
@@ -604,13 +643,13 @@ function ChatBot({ vehicleId }) {
             `}
             ${messages.map((m, i) => html`
               <div key=${i} class=${'chat-msg ' + (m.role === 'user' ? 'user' : 'bot')}>
-                ${m.role === 'bot' && html`<div class="chat-avatar"><${Icon} name="BrainCircuit" size=${14} /></div>`}
+                ${m.role === 'bot' && html`<div class="chat-avatar"><${LogoMark} className="chat-avatar-mark" /></div>`}
                 <div class="chat-bubble">${m.content}</div>
               </div>
             `)}
             ${loading && html`
               <div class="chat-msg bot">
-                <div class="chat-avatar"><${Icon} name="BrainCircuit" size=${14} /></div>
+                <div class="chat-avatar"><${LogoMark} className="chat-avatar-mark" /></div>
                 <div class="chat-bubble thinking">
                   <span class="dot-pulse"></span>
                 </div>
@@ -686,7 +725,7 @@ function Calculators() {
       fontFamily: 'var(--font)', fontSize: '11px', fontWeight: '700', letterSpacing: '1px', textTransform: 'uppercase',
       cursor: 'pointer', transition: 'all .2s'
     }}>
-      <${Icon} name=${icon} size=${16} color=${tab === id ? 'var(--accent)' : 'currentColor'} /> 
+      <${MarkIcon} name=${({ flow: 'Droplets', pressure: 'Gauge', electrical: 'Zap' })[id] || 'Gauge'} size=${16} /> 
       <span>${text}</span>
     </button>
   `;
@@ -696,7 +735,7 @@ function Calculators() {
       <div class="panel" style=${{ padding: 0, overflow: 'hidden' }}>
         <div style=${{ padding: '20px 24px 0' }}>
           <div class="vh-head">
-            <h2><${Icon} name="Stethoscope" size=${20} /> Diagnóstico Profesional</h2>
+            <h2><${MarkIcon} name="Stethoscope" size=${20} /> Diagnóstico Profesional</h2>
           </div>
           <p class="muted mt" style=${{ marginBottom: '20px' }}>Herramientas técnicas para cálculo de caudal y análisis eléctrico de bombas de combustible.</p>
         </div>
@@ -704,8 +743,7 @@ function Calculators() {
         <div style=${{ display: 'flex', flexWrap: 'wrap', borderBottom: '1px solid var(--border)', background: 'var(--panel)' }}>
           ${tabBtn('flow', 'Droplets', 'Caudal (LPH)')}
           ${tabBtn('pressure', 'Gauge', 'Presión (PSI)')}
-          ${tabBtn('electrical', 'Zap', 'Eléctrico (Ley de Ohm)')}
-        </div>
+          ${tabBtn('electrical', 'Zap', 'Eléctrico (Ley de Ohm)')}        </div>
 
         <div style=${{ padding: '24px' }}>
           
@@ -732,7 +770,7 @@ function Calculators() {
                 ${reqLph > 0 ? html`
                   <div class="alert blue" style=${{ marginTop: '20px', alignItems: 'center' }}>
                     <${Icon} name="CheckCircle2" size=${18} color="var(--accent)" /> 
-                    <span>La bomba debe entregar mínimo <b style=${{ color: 'var(--text)', fontSize: '15px' }}>${reqLph} LPH</strong> reales a la presión de trabajo.</span>
+                    <span>La bomba debe entregar mínimo <b style=${{ color: 'var(--text)', fontSize: '15px' }}>${reqLph} LPH</b> reales a la presión de trabajo.</span>
                   </div>` : ''}
               </div>
 
@@ -956,26 +994,26 @@ function App() {
         <div class="panel">
           <h2>Filtros de búsqueda</h2>
           <div class="filters">
-            <div><label htmlFor="f-brand"><${Icon} name="Tag" size=${13} /> Marca</label>
+            <div><label htmlFor="f-brand"><${MarkIcon} name="Tag" size=${13} /> Marca</label>
               <select id="f-brand" name="brand" autocomplete="off" title="Filtra por marca del vehículo" value=${filters.brand_id} onChange=${set('brand_id')}>
                 <option value="">Todas</option>
                 ${meta?.brands.map(b => html`<option key=${b.id} value=${b.id}>${b.name}</option>`)}
               </select></div>
-            <div><label htmlFor="f-model"><${Icon} name="Car" size=${13} /> Modelo</label>
+            <div><label htmlFor="f-model"><${MarkIcon} name="Car" size=${13} /> Modelo</label>
               <input id="f-model" name="model" autocomplete="off" placeholder="Tsuru, Jetta…" maxLength="60" title="Buscar por modelo, ej. Tsuru, Silverado, Jetta (atajo: /)"
                      ref=${modelInputRef} value=${filters.model} onChange=${set('model')} /></div>
-            <div><label htmlFor="f-year"><${Icon} name="Calendar" size=${13} /> Año</label>
+            <div><label htmlFor="f-year"><${MarkIcon} name="Calendar" size=${13} /> Año</label>
               <input id="f-year" name="year" autocomplete="off" type="number" inputMode="numeric"
                      min=${meta?.year_range.min} max=${meta?.year_range.max}
                      placeholder=${meta ? `${meta.year_range.min}–${meta.year_range.max}` : ''}
                      title=${meta ? `Año del modelo, entre ${meta.year_range.min} y ${meta.year_range.max}` : 'Año del modelo'}
                      value=${filters.year} onChange=${set('year')} /></div>
-            <div><label htmlFor="f-inj"><${Icon} name="Fuel" size=${13} /> Tipo de Inyección</label>
+            <div><label htmlFor="f-inj"><${MarkIcon} name="Fuel" size=${13} /> Tipo de Inyección</label>
               <select id="f-inj" name="injection_type" autocomplete="off" title="Filtra por tipo de sistema de inyección de combustible" value=${filters.injection_type_id} onChange=${set('injection_type_id')}>
                 <option value="">Todas</option>
                 ${meta?.injection_types.map(t => html`<option key=${t.id} value=${t.id}>${t.name}</option>`)}
               </select></div>
-            <div><label htmlFor="f-ord"><${Icon} name="ArrowUpDown" size=${13} /> Ordenar por</label>
+            <div><label htmlFor="f-ord"><${MarkIcon} name="ArrowUpDown" size=${13} /> Ordenar por</label>
               <select id="f-ord" name="order_by" autocomplete="off" title="Orden de los resultados" value=${filters.order_by} onChange=${set('order_by')}>
                 <option value="">Marca, Modelo, Año</option>
                 <option value="psi_desc">Presión (Mayor a Menor)</option>
@@ -983,7 +1021,7 @@ function App() {
               </select></div>
             <button type="button" title="Limpiar filtros (Esc)" onClick=${clearFilters}>Limpiar filtros</button>
             <button type="button" class="mt" style=${{ marginTop: '8px', background: 'var(--card)', color: 'var(--text)', border: '1px solid var(--border-hi)' }} onClick=${() => { setViewState(viewState === 'calculators' ? 'search' : 'calculators'); }}>
-              <${Icon} name="Calculator" size=${14} /> ${viewState === 'calculators' ? 'Cerrar Calculadoras' : 'Abrir Calculadoras'}
+              <${MarkIcon} name="Stethoscope" size=${14} /> ${viewState === 'calculators' ? 'Cerrar Calculadoras' : 'Abrir Calculadoras'}
             </button>
           </div>
           ${metaErr && html`<div class="alert"><${Icon} name="AlertTriangle" size=${14} /> Error al cargar catálogos. Verifica tu conexión.</div>`}
@@ -1029,7 +1067,7 @@ function App() {
                     <div class="r-name">${r.brand} ${r.model}</div>
                     <div class="r-meta"><span class="r-psi">${r.psi} PSI</span></div>
                   </button>`)
-                : html`<div class="empty-state"><${Icon} name="Star" size=${22} /><p>Tu garage está vacío.</p><p class="hint">Abre la ficha de un vehículo y toca "Guardar" para tenerlo a la mano aquí.</p></div>`)}
+                : html`<div class="empty-state"><${MarkIcon} name="Favorite" size=${22} /><p>Tu garage está vacío.</p><p class="hint">Abre la ficha de un vehículo y toca "Guardar" para tenerlo a la mano aquí.</p></div>`)}
               ${!showGarage && results?.map(r => html`
                 <button key=${r.id} type="button" role="option" aria-selected=${selected === r.id}
                         class=${'result-item' + (selected === r.id ? ' active' : '')} onClick=${() => setSelected(r.id)}>

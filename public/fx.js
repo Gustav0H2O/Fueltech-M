@@ -44,7 +44,7 @@
 
       ctx.beginPath();
       ctx.arc(p.x, p.y, p.r, 0, 7);
-      ctx.fillStyle = p.hot ? 'rgba(174,204,58,.55)' : 'rgba(151,158,167,.3)';
+      ctx.fillStyle = p.hot ? 'rgba(174,204,58,.55)' : 'rgba(150,156,153,.3)';
       ctx.fill();
     }
 
@@ -55,7 +55,7 @@
         const a = parts[i], b = parts[j];
         const dx = a.x - b.x, dy = a.y - b.y, d2 = dx * dx + dy * dy;
         if (d2 < 10000) {
-          ctx.strokeStyle = `rgba(74,85,98,${.18 * (1 - d2 / 10000)})`;
+          ctx.strokeStyle = `rgba(126,133,138,${.18 * (1 - d2 / 10000)})`;
           ctx.beginPath(); ctx.moveTo(a.x, a.y); ctx.lineTo(b.x, b.y); ctx.stroke();
         }
       }

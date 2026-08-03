@@ -112,9 +112,9 @@ function makeLabel(text, color = '#e8eae6', scale = 0.011) {
   c.width = Math.ceil(m.measureText(text).width) + pad * 2; c.height = 68;
   const ctx = c.getContext('2d');
   const rr = (x, y, w, h, r) => { ctx.beginPath(); ctx.roundRect(x, y, w, h, r); };
-  ctx.fillStyle = 'rgba(10,13,10,.84)';
+  ctx.fillStyle = _isLight ? 'rgba(244,245,242,.92)' : 'rgba(10,13,10,.84)';
   rr(1, 6, c.width - 2, c.height - 12, 8); ctx.fill();
-  ctx.strokeStyle = 'rgba(160,175,150,.45)'; ctx.lineWidth = 1.5;
+  ctx.strokeStyle = _isLight ? 'rgba(70,76,68,.35)' : 'rgba(160,175,150,.45)'; ctx.lineWidth = 1.5;
   rr(1, 6, c.width - 2, c.height - 12, 8); ctx.stroke();
   ctx.font = '600 42px Montserrat, system-ui, sans-serif';
   ctx.fillStyle = color; ctx.textBaseline = 'middle';
@@ -299,7 +299,7 @@ function buildFuelSystem(g, box, { zone, psiText, zoneLabel, bodyType }, hoverab
   /* riel de inyectores + etiqueta */
   const rail = tube([V3(X(.76), Y(.6), W * .12), V3(X(.93), Y(.6), W * .12)], .04, MAT.chrome(), 8);
   rail.userData.name = 'Riel / flauta de inyectores'; g.add(rail); hoverables.push(rail);
-  const railLbl = makeLabel(`RIEL ${psiText} PSI`, '#E8EAE6');
+  const railLbl = makeLabel(`RIEL ${psiText} PSI`, _isLight ? '#14161A' : '#E8EAE6');
   railLbl.position.set(X(.84), box.max.y + .45, W * .12); g.add(railLbl);
 
   /* línea de combustible tanque -> riel */
@@ -323,7 +323,7 @@ function buildFuelSystem(g, box, { zone, psiText, zoneLabel, bodyType }, hoverab
   const halo = new THREE.Mesh(new THREE.SphereGeometry(.12, 20, 20),
     new THREE.MeshBasicMaterial({ color: 0xaecc3a, transparent: true, opacity: .25, depthWrite: false }));
   halo.position.copy(marker.position); g.add(halo);
-  const mkLbl = makeLabel(zoneLabel || 'MÓDULO', '#aecc3a');
+  const mkLbl = makeLabel(zoneLabel || 'MÓDULO', _isLight ? '#435A08' : '#aecc3a');
   mkLbl.position.set(mx, box.max.y + .95, mz); g.add(mkLbl);
 
   v.ticks.push(t => {
@@ -399,7 +399,7 @@ function car(el, { zone = 'tank_drop', psiText = '', zoneLabel = '', body = 'sed
   syncTheme();   // el usuario pudo cambiar de tema desde la última construcción
   const v = createViewer(el, { camPos: [4.8, 2.6, 6.4], height: 320, target: [0, .8, 0], groundY: 0 });
   const loader = document.createElement('div');
-  loader.style.cssText = 'position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; background: rgba(13,17,23,.6); color: #E5E7EB; font: 600 12px sans-serif; z-index: 10; letter-spacing: 1px; backdrop-filter: blur(3px);';
+  loader.style.cssText = 'position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; background: rgba(15,17,19,.6); color: #E8EAE6; font: 600 12px sans-serif; z-index: 10; letter-spacing: 1px; backdrop-filter: blur(3px);';
   loader.textContent = 'CARGANDO MODELO 3D...';
   v.el.appendChild(loader);
   
@@ -510,9 +510,9 @@ function externalPump(el) {
   inArrow.rotation.z = -Math.PI / 2; inArrow.position.set(-1.6, .1, 0); g.add(inArrow);
   const outArrow = new THREE.Mesh(new THREE.ConeGeometry(.07, .18, 12), MAT.glow(0xaecc3a));
   outArrow.rotation.z = -Math.PI / 2; outArrow.position.set(1.25, .1, 0); g.add(outArrow);
-  const lblIn = makeLabel('DESDE EL TANQUE', '#B0B7AE'); lblIn.position.set(-1.5, .75, .3); g.add(lblIn);
-  const lblOut = makeLabel('AL MOTOR', '#AECC3A'); lblOut.position.set(1.35, .75, .3); g.add(lblOut);
-  const lblNo = makeLabel('NO LLEVA MÓDULO EN TANQUE', '#aecc3a'); lblNo.position.set(0, 1.35, .3); g.add(lblNo);
+  const lblIn = makeLabel('DESDE EL TANQUE', _isLight ? '#3a403f' : '#B0B7AE'); lblIn.position.set(-1.5, .75, .3); g.add(lblIn);
+  const lblOut = makeLabel('AL MOTOR', _isLight ? '#435A08' : '#AECC3A'); lblOut.position.set(1.35, .75, .3); g.add(lblOut);
+  const lblNo = makeLabel('NO LLEVA MÓDULO EN TANQUE', _isLight ? '#435A08' : '#aecc3a'); lblNo.position.set(0, 1.35, .3); g.add(lblNo);
 
   blueprint(g);
   v.ticks.push(t => {
@@ -724,15 +724,15 @@ function pump(el, { psi = '', style = '', code = '' } = {}) {
   tp.children[0].userData.name = 'Polo POSITIVO (+)'; hoverables.push(tp.children[0]);
   const tn = mkTerminal(.19, false); g.add(tn);
   tn.children[0].userData.name = 'Polo NEGATIVO (−)'; hoverables.push(tn.children[0]);
-  const posL = makeLabel('+', '#f87171', .015); posL.position.set(-.19, 1.22, .12); g.add(posL);
-  const negL = makeLabel('−', '#d8e2ec', .015); negL.position.set(.19, 1.22, .12); g.add(negL);
+  const posL = makeLabel('+', _isLight ? '#C0272D' : '#f87171', .015); posL.position.set(-.19, 1.22, .12); g.add(posL);
+  const negL = makeLabel('−', _isLight ? '#4B514C' : '#d8e2ec', .015); negL.position.set(.19, 1.22, .12); g.add(negL);
 
   const out = new THREE.Mesh(new THREE.CylinderGeometry(.075, .075, .38, 14), MAT.brass());
   out.position.set(0, .98, -.12); out.userData.name = `Salida con check — ${psi} PSI máx directa`;
   g.add(out); hoverables.push(out);
   const arrow = new THREE.Mesh(new THREE.ConeGeometry(.07, .16, 12), MAT.glow(0xaecc3a));
   arrow.position.set(0, 1.28, -.12); g.add(arrow);
-  const psiL = makeLabel(`${psi} PSI MÁX`, '#AECC3A', .0065); psiL.position.set(0, 1.62, 0); g.add(psiL);
+  const psiL = makeLabel(`${psi} PSI MÁX`, _isLight ? '#435A08' : '#AECC3A', .0065); psiL.position.set(0, 1.62, 0); g.add(psiL);
 
   const bCap = new THREE.Mesh(new THREE.CylinderGeometry(.43, .4, .16, 40), MAT.blackPl());
   bCap.position.y = -.68; g.add(bCap);
