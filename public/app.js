@@ -151,6 +151,9 @@ function MarkIcon({ name, size = 16, className = '' }) {
   const c = 'var(--accent)';
   return html`<span class=${'icon mark-icon' + (className ? ' ' + className : '')}>${icon(size, c)}</span>`;
 }
+// Expuesto para que microapps.js (dashboard) pueda reutilizar la iconografía de marca.
+window.FT_APP = window.FT_APP || {};
+window.FT_APP.MarkIcon = MarkIcon;
 
 /* ================================================================
    HERRAMIENTAS DEL TALLER — funciones prácticas para el mecánico
@@ -1204,7 +1207,8 @@ function App() {
   const [searchErr, setSearchErr] = useState(false);
   const [selected, setSelected] = useState(initialURL.selected);
   const [showGarage, setShowGarage] = useState(false);
-  const [viewState, setViewState] = useState('search'); // 'search' | 'calculators'
+  const [viewState, setViewState] = useState('home'); // 'home' | 'search' | 'calculators' | 'tools'
+  const [microApp, setMicroApp] = useState(null);     // micro app abierta desde el dashboard
   const garage = useGarage();
   const seqRef = useRef(0);
   const listRef = useRef(null);
@@ -1311,6 +1315,36 @@ function App() {
     return () => window.removeEventListener('keydown', onKeyDown);
   }, []);
 
+  // Manejador de apertura de micro app desde el dashboard
+  const openMicro = (id) => {
+    const FT = window.FT_MICRO || {};
+    const map = {
+      search: () => setViewState('search'),
+      diag: () => { setViewState('tools'); },
+      calc: () => setViewState('calculators'),
+      glossary: () => { setViewState('tools'); },
+      guides: () => { window.location.href = '/guias'; },
+      aid: () => { /* identificador IA: abre el chat con prompt */ setViewState('search'); },
+    };
+    if (map[id]) return map[id]();
+    // micro apps del dashboard (componentes propios)
+    const apps = { dtc: 'DtcApp', torque: 'TorqueApp', spark: 'SparkApp', cross: 'CrossApp', convert: 'ConverterApp', vin: 'VinApp', pressure: 'PressureApp', regulator: 'RegulatorApp', orders: 'OrdersApp', inventory: 'InventoryApp', clients: 'ClientsApp', notes: 'NotesApp', cash: 'CashApp', forum: 'ForumApp', connect: 'ConnectApp', market: 'MarketApp', timing: 'TimingApp' };
+    if (apps[id] && FT[apps[id]]) { setMicroApp(apps[id]); setViewState('home'); }
+  };
+  const closeMicro = () => setMicroApp(null);
+
+  // --- DASHBOARD (pantalla completa) ---
+  if (viewState === 'home') {
+    const FT = window.FT_MICRO || {};
+    if (microApp && FT[microApp]) {
+      const AppComp = FT[microApp];
+      return html`<div class="micro-app-view">${html`<${AppComp} onBack=${closeMicro} />`}</div>`;
+    }
+    if (FT.Home) {
+      return html`<${FT.Home} onOpen=${openMicro} />`;
+    }
+  }
+
   return html`
     <div class="app-shell">
       <!-- Panel de filtros: siempre fijo al lado -->
@@ -1350,6 +1384,9 @@ function App() {
                 <option value="year_desc">Año (Más reciente)</option>
               </select></div>
             <button type="button" title="Limpiar filtros (Esc)" onClick=${clearFilters}>Limpiar filtros</button>
+            <button type="button" class="mt" style=${{ marginTop: '8px', background: 'var(--accent-fill)', color: 'var(--accent-ink)', border: '1px solid var(--accent-fill)' }} onClick=${() => { setMicroApp(null); setViewState('home'); }}>
+              <${MarkIcon} name="View3D" size=${14} /> Inicio (Dashboard)
+            </button>
             <button type="button" class="mt" style=${{ marginTop: '8px', background: 'var(--card)', color: 'var(--text)', border: '1px solid var(--border-hi)' }} onClick=${() => { setViewState(viewState === 'calculators' ? 'search' : 'calculators'); }}>
               <${MarkIcon} name="Stethoscope" size=${14} /> ${viewState === 'calculators' ? 'Cerrar Calculadoras' : 'Abrir Calculadoras'}
             </button>

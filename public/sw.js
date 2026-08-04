@@ -2,13 +2,13 @@
    Estrategia NETWORK-FIRST: siempre intenta la red primero (nunca sirve código viejo);
    si no hay conexión, responde desde caché. Así el mecánico puede consultar en el taller
    aunque la señal sea mala, sin arriesgar servir una versión desactualizada de la app. */
-/* v2: nueva identidad de marca (logotipo lima sobre grafito) — el cambio de nombre
-   de caché fuerza a que los clientes viejos suelten el logotipo anterior. */
-const CACHE = 'fueltech-v2';
+/* v3: dashboard de micro apps — nuevo shell (microapps.js + fondo del motor) */
+const CACHE = 'fueltech-v3';
 const SHELL = [
-  '/', '/app.js', '/fx.js', '/three3d.js', '/manifest.webmanifest', '/icon.svg',
+  '/', '/app.js', '/fx.js', '/three3d.js', '/microapps.js', '/manifest.webmanifest', '/icon.svg',
   '/brand/logo-dark.png', '/brand/logo-light.png',
   '/brand/mark-dark.png', '/brand/mark-light.png',
+  '/brand/bg-dashboard.jpg',
   '/vendor/react.production.min.js', '/vendor/react-dom.production.min.js',
   '/vendor/htm.js', '/vendor/lucide.js', '/vendor/three.module.js'
 ];
