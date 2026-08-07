@@ -154,6 +154,7 @@ function MarkIcon({ name, size = 16, className = '' }) {
 // Expuesto para que microapps.js (dashboard) pueda reutilizar la iconografía de marca.
 window.FT_APP = window.FT_APP || {};
 window.FT_APP.MarkIcon = MarkIcon;
+window.FT_APP.MARK_ICONS = MARK_ICONS;
 
 /* ================================================================
    HERRAMIENTAS DEL TALLER — funciones prácticas para el mecánico

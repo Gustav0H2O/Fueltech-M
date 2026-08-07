@@ -26,7 +26,7 @@ async function startServer() {
   ) WITHOUT ROWID;
   CREATE TABLE IF NOT EXISTS meta (key TEXT PRIMARY KEY, value TEXT NOT NULL) WITHOUT ROWID;`);
 
-  const app = await createApp(new DBAdapter(db), new DBAdapter(statsDb));
+  const app = await createApp(new DBAdapter(db, 'local'), new DBAdapter(statsDb, 'local'));
   return new Promise((resolve, reject) => {
     const server = app.listen(0, '127.0.0.1', () => {
       const { port } = server.address();

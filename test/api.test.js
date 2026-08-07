@@ -11,7 +11,7 @@ const { seedTestDb } = require('./seed-test');
    Se prueba el MISMO archivo que corre en producción (server-pg.js), envolviendo
    las bases en memoria en el adaptador async que espera la app. */
 async function withServer(db, statsDb) {
-  const app = await createApp(new DBAdapter(db), new DBAdapter(statsDb));
+  const app = await createApp(new DBAdapter(db, 'local'), new DBAdapter(statsDb, 'local'));
   return new Promise((resolve, reject) => {
     const server = app.listen(0, '127.0.0.1', () => {
       const { port } = server.address();

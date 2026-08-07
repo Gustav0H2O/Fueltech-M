@@ -9,7 +9,7 @@ const { seedTestDb } = require('./seed-test');
 
 /* Helper: servidor en puerto aleatorio con bases en memoria */
 async function withServer(db, statsDb) {
-  const app = await createApp(new DBAdapter(db), new DBAdapter(statsDb));
+  const app = await createApp(new DBAdapter(db, 'local'), new DBAdapter(statsDb, 'local'));
   return new Promise((resolve, reject) => {
     const server = app.listen(0, '127.0.0.1', () => {
       resolve({ server, port: server.address().port });

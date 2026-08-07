@@ -18,6 +18,12 @@
     if (window.FT_APP && window.FT_APP.MarkIcon) return html`<${window.FT_APP.MarkIcon} name=${n} size=${s} />`;
     return null;
   };
+  // Icono de categoría: usa la iconografía de marca; si no está, lucide; si no, emoji
+  const CatIc = ({ n, s = 18 }) => {
+    const M = window.FT_APP?.MARK_ICONS;
+    if (M && M[n]) return html`<${window.FT_APP.MarkIcon} name=${n} size=${s} />`;
+    return html`<span class="icon" style=${{ width: s, height: s }}></span>`;
+  };
 
   /* ---------- shell de micro app (header con volver) ---------- */
   const MicroShell = ({ title, icon, onBack, children }) => html`
@@ -114,10 +120,11 @@
   const ZONES = ['Centro', 'Norte', 'Sur', 'Este', 'Oeste', 'Zona Industrial'];
 
   /* ================================================================
-     HOME — dashboard con menú central + explicación del sitio
+     HOME — menú superior con iconos + página explicativa
      ================================================================ */
   const Home = ({ onOpen, user, onLogout }) => {
     const [q, setQ] = useState('');
+    const [tab, setTab] = useState('inicio');
     const apps = [
       // Consulta rápida
       { id: 'search', t: 'Catálogo de Combustible', d: 'Presión, módulos y pilas por vehículo', i: 'Fuel', g: 'consulta', act: () => onOpen('search') },
@@ -150,47 +157,116 @@
       { id: 'glossary', t: 'Glosario Técnico', d: 'Términos del taller', i: 'BookOpen', g: 'aprende', act: () => onOpen('glossary') },
       { id: 'timing', t: 'Sincronización / Kit de Tiempo', d: 'Marcas por motor', i: 'History', g: 'aprende', act: () => onOpen('timing') },
     ];
-    const groups = [
-      ['consulta', 'Consulta Rápida', 'Herramientas de consulta técnica: presiones de riel, códigos OBD-II, torques, bujías, conversores y decodificador VIN.'],
-      ['diag', 'Diagnóstico', 'Diagnóstico rápido de PSI con veredicto, prueba de regulador, calculadoras técnicas, registro de presión y asistente con IA.'],
-      ['taller', 'Taller y Gestión', 'La gestión del negocio: inventario, órdenes de trabajo con evidencia, cartera de clientes, notas de entrega y presupuestos. Requiere cuenta.'],
-      ['comunidad', 'Comunidad y Mercado', 'Conecta clientes y mecánicos por ubicación y oferta, participa en el foro técnico y publica vehículos.'],
-      ['aprende', 'Aprendizaje', 'Guías paso a paso, glosario técnico y marcas de sincronización para el taller.'],
+    // Categorías del menú superior: icono + nombre corto
+    const nav = [
+      ['inicio', 'Inicio', 'Search'],
+      ['consulta', 'Consulta', 'Fuel'],
+      ['diag', 'Diagnóstico', 'Stethoscope'],
+      ['taller', 'Taller', 'Wrench'],
+      ['comunidad', 'Comunidad', 'MapPin'],
+      ['aprende', 'Aprender', 'BookOpen'],
     ];
-    const filtered = apps.filter(a => !q || (a.t + ' ' + a.d).toLowerCase().includes(q.toLowerCase()));
+    const groupInfo = {
+      consulta: { t: 'Consulta Rápida', d: 'Datos técnicos al instante: presión de riel (PSI/Bar), códigos OBD-II, torques, bujías, cross-reference de pilas, conversor de unidades y decodificador VIN. Sin cuenta.' },
+      diag: { t: 'Diagnóstico', d: 'Veredicto rápido de PSI comparando tu medición contra la especificación, prueba de regulador, calculadoras técnicas, registro de presión e identificador con IA.' },
+      taller: { t: 'Taller y Gestión', d: 'Inventario, órdenes de trabajo con evidencia, cartera de clientes, notas de entrega y presupuestos, notas del mecánico y cierre de caja. Requiere tu cuenta.' },
+      comunidad: { t: 'Comunidad y Mercado', d: 'Conecta clientes y mecánicos por ubicación y oferta, foro técnico y mercado de autos.' },
+      aprende: { t: 'Aprendizaje', d: 'Guías paso a paso, glosario técnico y marcas de sincronización para el taller.' },
+    };
     const lock = (a) => a.need && !user;
-    const card = (a) => html`<button type="button" class="micro-card" onClick=${a.act} key=${a.id}>
-        <span class="micro-card-icon"><${Ic} n=${a.i} s=${22} /></span>
+    const filtered = apps.filter(a => !q || (a.t + ' ' + a.d).toLowerCase().includes(q.toLowerCase()));
+    const appsOf = (g) => apps.filter(a => a.g === g);
+    const card = (a) => html`<button type="button" class="micro-card micro-card-app" onClick=${a.act} key=${a.id}>
+        <span class="micro-card-icon"><${Ic} n=${a.i} s=${24} /></span>
         <span class="micro-card-title">${a.t}${lock(a) ? html` <em style=${{ fontSize: '9px', color: 'var(--amber)', fontStyle: 'normal' }}>🔒</em>` : ''}</span>
         <span class="micro-card-desc">${a.d}</span>
       </button>`;
 
     return html`
       <div class="home">
-        <header class="home-header">
-          <img class="logo-lockup on-dark" src="/brand/logo-dark.png" width="760" height="205" alt="FuelTech Master" />
-          <img class="logo-lockup on-light" src="/brand/logo-light.png" width="760" height="193" alt="" />
-          <p class="home-tagline">El taller en tu bolsillo — herramientas, diagnóstico y gestión</p>
-          ${user && html`<p class="home-user muted" style=${{ fontSize: '11px', letterSpacing: '1px' }}>👤 ${user.name} · ${user.email} <button type="button" class="link-btn" onClick=${onLogout} style=${{ marginLeft: '6px' }}>salir</button></p>`}
-          <div class="home-search">
-            <input type="search" class="styled-input" placeholder="Buscar app, herramienta, DTC, término…" value=${q} onChange=${e => setQ(e.target.value)} />
-            ${q && html`<button type="button" class="home-search-clear" onClick=${() => setQ('')} aria-label="Limpiar">✕</button>`}
+        <nav class="home-nav">
+          <div class="home-nav-logo">
+            <img class="on-dark" src="/brand/mark-dark.png" width="34" height="34" alt="" />
+            <img class="on-light" src="/brand/mark-light.png" width="34" height="34" alt="" />
+            <strong>FuelTech</strong>
           </div>
-        </header>
-        <div class="home-groups">
-          ${q ? html`<section class="home-group"><div class="home-group-grid">${filtered.map(a => card(a))}</div>${filtered.length === 0 && html`<div class="empty">Sin resultados para “${q}”</div>`}</section>`
-            : groups.map(([gid, glabel, gdesc]) => html`
-              <section class="home-group" key=${gid}>
-                <h2 class="home-group-title">${glabel}</h2>
-                <div class="home-group-grid">${apps.filter(a => a.g === gid).map(a => card(a))}</div>
-                <p class="home-group-desc">${gdesc}</p>
-              </section>`)}
+          <div class="home-nav-links">
+            ${nav.map(([id, label, icon]) => html`<button type="button" class=${'home-nav-link' + (tab === id ? ' active' : '')} onClick=${() => { setTab(id); setQ(''); }} key=${id}>
+              <span class="home-nav-ic"><${CatIc} n=${icon} s=${17} /></span>${label}
+            </button>`)}
+          </div>
+          <div class="home-nav-user">
+            ${user ? html`<span class="muted" style=${{ fontSize: '11px' }}>${user.name} <button type="button" class="link-btn" onClick=${onLogout}>salir</button></span>`
+              : html`<span class="muted" style=${{ fontSize: '11px' }}>sin sesión</span>`}
+          </div>
+        </nav>
+
+        <div class="home-body">
+          ${tab === 'inicio' ? html`
+            <header class="home-hero">
+              <img class="logo-lockup on-dark" src="/brand/logo-dark.png" width="760" height="205" alt="FuelTech Master" />
+              <img class="logo-lockup on-light" src="/brand/logo-light.png" width="760" height="193" alt="" />
+              <p class="home-tagline">El taller en tu bolsillo — herramientas, diagnóstico y gestión</p>
+              <div class="home-search">
+                <input type="search" class="styled-input" placeholder="Buscar app, herramienta, DTC, término…" value=${q} onChange=${e => { setQ(e.target.value); if (e.target.value) setTab(null); }} />
+                ${q && html`<button type="button" class="home-search-clear" onClick=${() => setQ('')} aria-label="Limpiar">✕</button>`}
+              </div>
+              <div class="home-cta">
+                ${user ? html`<button type="button" class="tool-add-btn" onClick=${() => setTab('taller')}>Ir a mi taller →</button>`
+                  : html`<button type="button" class="tool-add-btn" onClick=${() => setTab('consulta')}>Explorar herramientas</button>`}
+              </div>
+            </header>
+
+            <div class="home-explain">
+              <section class="home-about panel">
+                <h2 class="home-about-title">¿Qué es FuelTech Master?</h2>
+                <p>Es una plataforma para mecánicos y talleres de Latinoamérica que une en un solo lugar la <strong>consulta técnica</strong>, el <strong>diagnóstico</strong> y la <strong>gestión del negocio</strong>. Busca la presión de riel, el módulo y la pila de gasolina de más de 140 vehículos, diagnostica fallas comparando tus mediciones contra la especificación, y administra inventario, clientes y órdenes de trabajo desde el taller o el celular.</p>
+              </section>
+
+              <section class="home-cards">
+                <div class="home-card-item panel">
+                  <span class="home-card-ic"><${CatIc} n="Fuel" s=${26} /></span>
+                  <h3>Consulta técnica</h3>
+                  <p>Presión de riel en PSI y bar, ubicación del módulo, pilas OEM y alternativas, DTC, torques, bujías y más — por marca y modelo.</p>
+                </div>
+                <div class="home-card-item panel">
+                  <span class="home-card-ic"><${CatIc} n="Gauge" s=${26} /></span>
+                  <h3>Diagnóstico</h3>
+                  <p>Mide la presión en la flauta, compárala contra la spec del vehículo y obtén un veredicto BIEN/MAL con las causas probables.</p>
+                </div>
+                <div class="home-card-item panel">
+                  <span class="home-card-ic"><${CatIc} n="Wrench" s=${26} /></span>
+                  <h3>Gestión del taller</h3>
+                  <p>Inventario con alertas, órdenes de trabajo con evidencia, clientes, notas de entrega y presupuestos imprimibles. Todo con tu cuenta.</p>
+                </div>
+                <div class="home-card-item panel">
+                  <span class="home-card-ic"><${CatIc} n="MapPin" s=${26} /></span>
+                  <h3>Comunidad</h3>
+                  <p>Conecta clientes y mecánicos por ubicación y oferta, participa en el foro técnico y publica en el mercado de autos.</p>
+                </div>
+              </section>
+
+              <section class="home-audience panel">
+                <h2 class="home-about-title">¿Para quién es?</h2>
+                <div class="home-aud-grid">
+                  <div><strong>🔧 Mecánicos</strong><span>Consultan specs al instante, diagnostican con veredicto y gestionan su taller con cuenta propia.</span></div>
+                  <div><strong>🏪 Refaccionarias</strong><span>Buscan compatibilidades de pilas y módulos, y se conectan con mecánicos de su zona.</span></div>
+                  <div><strong>🚗 Conductores</strong><span>Entienden qué le pasa a su auto y encuentran mecánicos cerca por lo que ofrecen.</span></div>
+                  <div><strong>🎓 Aprendices</strong><span>Estudian guías, glosario y marcas de sincronización a su ritmo.</span></div>
+                </div>
+              </section>
+            </div>
+          ` : html`
+            ${q ? html`<section class="home-group"><div class="home-group-grid">${filtered.map(a => card(a))}</div>${filtered.length === 0 && html`<div class="empty">Sin resultados para “${q}”</div>`}</section>`
+              : html`
+                <header class="home-cat-head">
+                  <h1 class="home-cat-title">${groupInfo[tab].t}</h1>
+                  <p class="home-cat-desc">${groupInfo[tab].d}</p>
+                </header>
+                <div class="home-group-grid home-apps-grid">${appsOf(tab).map(a => card(a))}</div>
+              `}
+          `}
         </div>
-        <section class="home-about panel" style=${{ maxWidth: '1200px', margin: '0 auto 20px', padding: '20px' }}>
-          <h2 class="home-about-title">¿Qué es FuelTech Master?</h2>
-          <p>FuelTech Master es una plataforma para mecánicos de Latinoamérica. Combina un <strong>catálogo técnico</strong> de presión de riel (PSI/Bar), módulos y pilas de gasolina para 140+ vehículos, con herramientas de <strong>diagnóstico</strong> (veredicto rápido de PSI, DTC, torques, calculadoras), la <strong>gestión completa de tu taller</strong> (inventario, órdenes de trabajo con evidencia, cartera de clientes, notas de entrega y presupuestos), y una <strong>comunidad</strong> que conecta clientes y mecánicos por ubicación y oferta.</p>
-          <p style=${{ marginTop: '8px' }}>Tus datos de negocio se guardan de forma segura en la nube con tu cuenta de mecánico, y puedes exportar respaldos locales cuando quieras.</p>
-        </section>
         <footer class="home-footer">FuelTech Master · Herramientas para el mecánico profesional</footer>
       </div>`;
   };

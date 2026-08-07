@@ -61,24 +61,37 @@ function parseQuery(sql, params) {
 }
 
 class DBAdapter {
-  constructor(sqliteInstance) {
+  // mode: 'auto' (usa USE_TURSO/USE_PG global) | 'local' | 'turso' | 'pg'
+  // 'local' fuerza el backend SQLite de la instancia (lo usan los tests con
+  // bases en memoria, aunque el .env tenga TURSO_URL seteado).
+  constructor(sqliteInstance, mode = 'auto') {
     this.sqlite = sqliteInstance;
+    this.mode = mode;
     this.tursoTx = null; // transacción perezosa activa (Turso)
   }
+  get isTurso() { return this.mode === 'turso' || (this.mode === 'auto' && USE_TURSO); }
+  get isPg() { return this.mode === 'pg' || (this.mode === 'auto' && !USE_TURSO && USE_PG); }
 
   // Ejecuta en Turso: si hay transacción activa, dentro de ella; si no, directo.
+  // Params puede ser: array, objeto (@name) o valor suelto (string/número) → se
+  // normaliza a array. OJO: Object.values() de un string devuelve cada carácter,
+  // por eso los escalares se envuelven en [valor].
   async tursoExec(sql, params) {
-    const args = Array.isArray(params) ? params : (params ? Object.values(params) : []);
+    let args;
+    if (Array.isArray(params)) args = params;
+    else if (params !== null && params !== undefined && typeof params === 'object') args = Object.values(params);
+    else if (params !== null && params !== undefined) args = [params];
+    else args = [];
     if (this.tursoTx) return this.tursoTx.execute({ sql, args });
     return tursoClient.execute({ sql, args });
   }
 
   async get(sql, params) {
-    if (USE_TURSO) {
+    if (this.isTurso) {
       const res = await this.tursoExec(sql, params);
       return res.rows[0] || null;
     }
-    if (USE_PG) {
+    if (this.isPg) {
       const { sql: pgSql, arr } = parseQuery(sql, params);
       const res = await pgPool.query(pgSql, arr);
       return res.rows[0] || null;
@@ -88,11 +101,11 @@ class DBAdapter {
   }
 
   async all(sql, params) {
-    if (USE_TURSO) {
+    if (this.isTurso) {
       const res = await this.tursoExec(sql, params);
       return res.rows;
     }
-    if (USE_PG) {
+    if (this.isPg) {
       const { sql: pgSql, arr } = parseQuery(sql, params);
       const res = await pgPool.query(pgSql, arr);
       return res.rows;
@@ -102,11 +115,11 @@ class DBAdapter {
   }
 
   async run(sql, params) {
-    if (USE_TURSO) {
+    if (this.isTurso) {
       const res = await this.tursoExec(sql, params);
       return { changes: res.rowsAffected, lastInsertRowid: res.lastInsertRowid ?? null };
     }
-    if (USE_PG) {
+    if (this.isPg) {
       let pgSql = sql;
       let onConflict = '';
       if (pgSql.includes('INSERT OR IGNORE')) {
@@ -124,7 +137,7 @@ class DBAdapter {
   }
 
   async exec(sql) {
-    if (USE_TURSO) {
+    if (this.isTurso) {
       // El cliente HTTP de Turso no admite multi-statement: quitar comentarios --
       // (el split por ';' dejaría el comentario pegado al statement y rompe el
       // parseo), dividir por ';' y ejecutar uno a uno. BEGIN/COMMIT/ROLLBACK se
@@ -148,7 +161,7 @@ class DBAdapter {
       for (const stmt of stmts) await tursoClient.execute(stmt);
       return;
     }
-    if (USE_PG) {
+    if (this.isPg) {
       await pgPool.query(sql);
     } else {
       this.sqlite.exec(sql);
@@ -156,11 +169,11 @@ class DBAdapter {
   }
 
   async insertReturningId(sql, params) {
-    if (USE_TURSO) {
+    if (this.isTurso) {
       const res = await this.tursoExec(sql + ' RETURNING id', params);
       return res.rows[0]?.id ?? null;
     }
-    if (USE_PG) {
+    if (this.isPg) {
       let pgSql = sql.replace(/INSERT OR IGNORE/g, 'INSERT') + ' RETURNING id';
       const { sql: finalSql, arr } = parseQuery(pgSql, params);
       const res = await pgPool.query(finalSql, arr);
