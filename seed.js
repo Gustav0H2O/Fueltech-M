@@ -1,6 +1,6 @@
 const fs = require('fs');
 const path = require('path');
-const { db, statsDb, USE_PG } = require('./db');
+const { db, statsDb, USE_TURSO, USE_PG } = require('./db');
 
 async function runSeed() {
   if (!process.env.FORCE_SEED) {
@@ -16,7 +16,7 @@ async function runSeed() {
     }
   }
 
-  console.log(`🌱 Sembrando base de datos en modo: ${USE_PG ? 'PostgreSQL' : 'SQLite'}`);
+  console.log(`🌱 Sembrando base de datos en modo: ${USE_TURSO ? 'Turso (libSQL)' : USE_PG ? 'PostgreSQL' : 'SQLite'}`);
 
   if (process.env.FORCE_SEED) {
     try {

@@ -12,6 +12,7 @@
   },
   "dependencies": {
     "@google/generative-ai": "^0.24.1",
+    "@libsql/client": "^0.17.4",
     "better-sqlite3": "^11.10.0",
     "compression": "^1.8.1",
     "dotenv": "^17.4.2",
@@ -27,6 +28,6 @@
     "three": "^0.170.0"
   },
   "devDependencies": {
-    "puppeteer": "^25.3.0"
+    "puppeteer": "^25.5.0"
   }
 }

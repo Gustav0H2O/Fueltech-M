@@ -1,14 +1,25 @@
+require('dotenv').config();
 const { Pool } = require('pg');
 const Database = require('better-sqlite3');
 const path = require('path');
 
-const USE_PG = !!process.env.DATABASE_URL;
+// Prioridad de backend: Turso (TURSO_URL) > PostgreSQL (DATABASE_URL) > SQLite local
+const USE_TURSO = !!(process.env.TURSO_URL && process.env.TURSO_AUTH_TOKEN);
+const USE_PG = !USE_TURSO && !!process.env.DATABASE_URL;
 
 let pgPool = null;
 let sqliteDb = null;
 let sqliteStats = null;
+let tursoClient = null;
 
-if (USE_PG) {
+if (USE_TURSO) {
+  const { createClient } = require('@libsql/client');
+  tursoClient = createClient({
+    url: process.env.TURSO_URL,
+    authToken: process.env.TURSO_AUTH_TOKEN
+  });
+  console.log('☁️  Conectado a Turso (libSQL)');
+} else if (USE_PG) {
   const isInternal = process.env.DATABASE_URL.includes('.internal');
   pgPool = new Pool({
     connectionString: process.env.DATABASE_URL,
@@ -52,9 +63,21 @@ function parseQuery(sql, params) {
 class DBAdapter {
   constructor(sqliteInstance) {
     this.sqlite = sqliteInstance;
+    this.tursoTx = null; // transacción perezosa activa (Turso)
+  }
+
+  // Ejecuta en Turso: si hay transacción activa, dentro de ella; si no, directo.
+  async tursoExec(sql, params) {
+    const args = Array.isArray(params) ? params : (params ? Object.values(params) : []);
+    if (this.tursoTx) return this.tursoTx.execute({ sql, args });
+    return tursoClient.execute({ sql, args });
   }
 
   async get(sql, params) {
+    if (USE_TURSO) {
+      const res = await this.tursoExec(sql, params);
+      return res.rows[0] || null;
+    }
     if (USE_PG) {
       const { sql: pgSql, arr } = parseQuery(sql, params);
       const res = await pgPool.query(pgSql, arr);
@@ -65,6 +88,10 @@ class DBAdapter {
   }
 
   async all(sql, params) {
+    if (USE_TURSO) {
+      const res = await this.tursoExec(sql, params);
+      return res.rows;
+    }
     if (USE_PG) {
       const { sql: pgSql, arr } = parseQuery(sql, params);
       const res = await pgPool.query(pgSql, arr);
@@ -75,6 +102,10 @@ class DBAdapter {
   }
 
   async run(sql, params) {
+    if (USE_TURSO) {
+      const res = await this.tursoExec(sql, params);
+      return { changes: res.rowsAffected, lastInsertRowid: res.lastInsertRowid ?? null };
+    }
     if (USE_PG) {
       let pgSql = sql;
       let onConflict = '';
@@ -93,6 +124,30 @@ class DBAdapter {
   }
 
   async exec(sql) {
+    if (USE_TURSO) {
+      // El cliente HTTP de Turso no admite multi-statement: quitar comentarios --
+      // (el split por ';' dejaría el comentario pegado al statement y rompe el
+      // parseo), dividir por ';' y ejecutar uno a uno. BEGIN/COMMIT/ROLLBACK se
+      // traducen a una transacción perezosa real con client.transaction() para
+      // que los BEGIN...COMMIT del código conserven su atomicidad.
+      const t = sql.trim().toUpperCase();
+      if (t === 'BEGIN') {
+        this.tursoTx = await tursoClient.transaction('write');
+        return;
+      }
+      if (t === 'COMMIT') {
+        if (this.tursoTx) { await this.tursoTx.commit(); this.tursoTx = null; }
+        return;
+      }
+      if (t === 'ROLLBACK') {
+        if (this.tursoTx) { await this.tursoTx.rollback(); this.tursoTx = null; }
+        return;
+      }
+      const clean = sql.split(/\r?\n/).filter(l => !l.trim().startsWith('--')).join('\n');
+      const stmts = clean.split(';').map(s => s.trim()).filter(s => s.length > 0);
+      for (const stmt of stmts) await tursoClient.execute(stmt);
+      return;
+    }
     if (USE_PG) {
       await pgPool.query(sql);
     } else {
@@ -101,6 +156,10 @@ class DBAdapter {
   }
 
   async insertReturningId(sql, params) {
+    if (USE_TURSO) {
+      const res = await this.tursoExec(sql + ' RETURNING id', params);
+      return res.rows[0]?.id ?? null;
+    }
     if (USE_PG) {
       let pgSql = sql.replace(/INSERT OR IGNORE/g, 'INSERT') + ' RETURNING id';
       const { sql: finalSql, arr } = parseQuery(pgSql, params);
@@ -124,4 +183,4 @@ class DBAdapter {
 const db = new DBAdapter(sqliteDb);
 const statsDb = new DBAdapter(sqliteStats);
 
-module.exports = { db, statsDb, pgPool, USE_PG, DBAdapter };
+module.exports = { db, statsDb, pgPool, tursoClient, USE_TURSO, USE_PG, DBAdapter };

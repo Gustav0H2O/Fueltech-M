@@ -110,6 +110,7 @@
     <button id="nav-new">+ Nuevo vehículo</button>
     <button id="nav-pumps">Pilas</button>
     <button id="nav-brands">Marcas</button>
+    <button id="nav-import">Importar CSV</button>
     <button id="nav-insights">Búsquedas sin resultado</button>
   </nav>
 
@@ -203,6 +204,18 @@
       <button id="br_add" class="primary">Agregar</button>
     </div>
     <p id="br_msg" class="msg"></p>
+  </section>
+
+  <!-- IMPORT CSV -->
+  <section id="view-import" class="panel hidden">
+    <h2>Importar vehículos (CSV)</h2>
+    <p class="muted" style="font-size:12px;margin-bottom:12px">Formato: <code>marca, modelo, año_desde, año_hasta, motor, inyección (MFI|TBI|VORTEC_CSFI|GDI), psi_min, psi_max, zona (rear_seat|trunk_access|tank_drop|frame_rail), requiere_bajar_tanque (0|1), ubicación_texto, carrocería (sedan|hatchback|pickup|suv|van)</code>. La primera línea puede ser cabecera.</p>
+    <div class="field"><label>Texto CSV</label><textarea id="imp_csv" rows="10" placeholder="Toyota, Corolla, 2008, 2017, 1.8L L4 16v, MFI, 38, 44, rear_seat, 0, Dentro del tanque; acceso por registro bajo el asiento trasero., sedan"></textarea></div>
+    <div class="row">
+      <button id="imp_run" class="primary">Importar</button>
+      <button id="imp_download" class="small">Descargar plantilla</button>
+    </div>
+    <p id="imp_msg" class="msg"></p>
   </section>
 
   <!-- INSIGHTS -->

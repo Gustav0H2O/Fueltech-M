@@ -82,18 +82,58 @@ function switchView(name) {
   show($('view-editor'), name === 'new' || name === 'editor');
   show($('view-pumps'), name === 'pumps');
   show($('view-brands'), name === 'brands');
+  show($('view-import'), name === 'import');
   show($('view-insights'), name === 'insights');
-  ['list', 'new', 'pumps', 'brands', 'insights'].forEach(n => $('nav-' + n).classList.toggle('active', n === name || (name === 'editor' && n === 'new')));
+  ['list', 'new', 'pumps', 'brands', 'import', 'insights'].forEach(n => $('nav-' + n).classList.toggle('active', n === name || (name === 'editor' && n === 'new')));
   if (name === 'insights') loadMissing();
 }
 $('nav-list').addEventListener('click', () => { loadList($('search').value); switchView('list'); });
 $('nav-new').addEventListener('click', () => newVehicle());
 $('nav-pumps').addEventListener('click', () => switchView('pumps'));
 $('nav-brands').addEventListener('click', () => switchView('brands'));
+$('nav-import').addEventListener('click', () => switchView('import'));
 $('nav-insights').addEventListener('click', () => switchView('insights'));
 $('logoutBtn').addEventListener('click', logout);
 $('cancelBtn').addEventListener('click', () => { loadList($('search').value); switchView('list'); });
 $('search').addEventListener('input', debounce(() => loadList($('search').value), 300));
+
+/* ---------- Import masivo de vehículos (CSV) ---------- */
+$('imp_run').addEventListener('click', async () => {
+  const msg = $('imp_msg'); msg.textContent = ''; msg.className = 'msg';
+  const raw = $('imp_csv').value.trim();
+  if (!raw) { msg.textContent = 'Pega el CSV primero'; msg.className = 'msg err'; return; }
+  const rows = raw.split(/\r?\n/).filter(l => l.trim());
+  const out = [];
+  rows.forEach((line, idx) => {
+    // parse simple de CSV: respeta comillas dobles
+    const fields = []; let cur = '', inQ = false;
+    for (const ch of line) {
+      if (ch === '"') inQ = !inQ;
+      else if (ch === ',' && !inQ) { fields.push(cur.trim()); cur = ''; }
+      else cur += ch;
+    }
+    fields.push(cur.trim());
+    if (idx === 0 && /marca|modelo/i.test(fields[0])) return; // cabecera
+    const [marca, modelo, y1, y2, motor, inj, psiMin, psiMax, zona, tanque, ubica, carroceria] = fields;
+    out.push({ marca, modelo, y1, y2, motor, inj, psiMin, psiMax, zona, tanque, ubica, carroceria });
+  });
+  if (!out.length) { msg.textContent = 'No se encontraron filas'; msg.className = 'msg err'; return; }
+  msg.textContent = `Importando ${out.length} vehículos…`;
+  try {
+    const res = await authFetch('/api/admin/vehicles/import', { method: 'POST', body: JSON.stringify({ rows: out }) });
+    const d = await res.json().catch(() => ({}));
+    if (!res.ok) { msg.textContent = d.error || 'Error al importar'; msg.className = 'msg err'; return; }
+    msg.textContent = `✓ ${d.ok} importados, ${d.skipped} omitidos${d.errors ? ' · ' + d.errors.length + ' con error' : ''}`;
+    msg.className = 'msg ok';
+    await reloadBoot(); loadList($('search').value);
+  } catch (e) { msg.textContent = e.message; msg.className = 'msg err'; }
+});
+$('imp_download').addEventListener('click', () => {
+  const tmpl = 'marca,modelo,año_desde,año_hasta,motor,inyección,psi_min,psi_max,zona,requiere_bajar_tanque,ubicación,carrocería\nToyota,Corolla,2008,2017,1.8L L4 16v,MFI,38,44,rear_seat,0,Dentro del tanque; registro bajo asiento trasero,sedan\n';
+  const blob = new Blob([tmpl], { type: 'text/csv;charset=utf-8' });
+  const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = 'plantilla-vehiculos.csv'; a.click();
+  URL.revokeObjectURL(a.href);
+});
 
 /* ---------- Lista de vehículos ---------- */
 async function loadList(q) {

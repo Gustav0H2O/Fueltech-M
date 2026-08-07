@@ -1193,6 +1193,72 @@ function Calculators() {
   `;
 }
 
+/* ---------- Login / registro del taller ---------- */
+function LoginScreen({ onLogin }) {
+  const [mode, setMode] = useState('login');
+  const [form, setForm] = useState({ name: '', email: '', password: '' });
+  const [err, setErr] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [done, setDone] = useState(false);
+  const submit = async (e) => {
+    e.preventDefault();
+    if (form.password.length < 8) { setErr('La contraseña debe tener al menos 8 caracteres'); return; }
+    setBusy(true); setErr('');
+    try {
+      const res = await fetch(mode === 'register' ? '/api/auth/register' : '/api/auth/login', {
+        method: 'POST', credentials: 'same-origin', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(form)
+      });
+      const body = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(body.error || 'Error');
+      setDone(true); onLogin(body);
+    } catch (e2) { setErr(e2.message); }
+    setBusy(false);
+  };
+  // Migración best-effort desde localStorage (datos viejos del taller)
+  const importLocal = async () => {
+    const grab = (k) => { try { return JSON.parse(localStorage.getItem(k)) || []; } catch { return []; } };
+    const inv = grab('ft_inventory'), cli = grab('ft_clients'), ord = grab('ft_orders'), notes = grab('ft_notes'), cash = grab('ft_cash');
+    if (!inv.length && !cli.length && !ord.length && !notes.length && !cash.length) { setErr('No se encontraron datos locales para importar'); return; }
+    setBusy(true); setErr('');
+    try {
+      for (const i of inv) await fetch('/api/inventory', { method: 'POST', credentials: 'same-origin', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name: i.name, qty: i.qty, min_qty: i.min, unit_price: i.price || 0 }) });
+      for (const c of cli) await fetch('/api/clients', { method: 'POST', credentials: 'same-origin', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name: c.name, phone: c.phone, notes: [c.veh, c.plate].filter(Boolean).join(' · ') }) });
+      for (const o of ord) await fetch('/api/orders', { method: 'POST', credentials: 'same-origin', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ title: o.desc || o.title || 'Orden importada', descr: o.desc, status: o.status }) });
+      for (const n of notes) await fetch('/api/notes', { method: 'POST', credentials: 'same-origin', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ text: n.t, vehicle_ref: n.veh }) });
+      for (const m of cash) await fetch('/api/cash', { method: 'POST', credentials: 'same-origin', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ concept: m.concept, amount: m.amount, type: m.type }) });
+      setErr('Datos importados del navegador ✓');
+      ['ft_inventory', 'ft_clients', 'ft_orders', 'ft_notes', 'ft_cash', 'ft_pressure_log'].forEach(k => localStorage.removeItem(k));
+    } catch (e) { setErr('Error al importar: ' + e.message); }
+    setBusy(false);
+  };
+  return html`
+    <div class="home">
+      <header class="home-header">
+        <img class="logo-lockup on-dark" src="/brand/logo-dark.png" width="760" height="205" alt="FuelTech Master" />
+        <img class="logo-lockup on-light" src="/brand/logo-light.png" width="760" height="193" alt="" />
+        <p class="home-tagline">Inicia sesión para gestionar tu taller</p>
+      </header>
+      <div class="login-card panel" style=${{ maxWidth: '420px', margin: '20px auto 60px', padding: '22px' }}>
+        ${done && html`<div class="alert blue"><span>¡Bienvenido! Tu sesión está activa.</span></div>`}
+        <div class="conv-modes" style=${{ marginBottom: '14px' }}>
+          <button type="button" class=${'conv-mode' + (mode === 'login' ? ' active' : '')} onClick=${() => { setMode('login'); setErr(''); }}>Iniciar sesión</button>
+          <button type="button" class=${'conv-mode' + (mode === 'register' ? ' active' : '')} onClick=${() => { setMode('register'); setErr(''); }}>Crear cuenta</button>
+        </div>
+        <form onSubmit=${submit} style=${{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+          ${mode === 'register' && html`<input type="text" class="styled-input" placeholder="Nombre del taller / dueño" value=${form.name} onChange=${e => setForm({ ...form, name: e.target.value })} />`}
+          <input type="email" class="styled-input" placeholder="Correo" value=${form.email} onChange=${e => setForm({ ...form, email: e.target.value })} />
+          <input type="password" class="styled-input" placeholder="Contraseña (mín 8)" value=${form.password} onChange=${e => setForm({ ...form, password: e.target.value })} />
+          <button type="submit" class="tool-add-btn" disabled=${busy || !form.email || !form.password}>${busy ? '…' : mode === 'register' ? 'Crear cuenta y entrar' : 'Entrar'}</button>
+        </form>
+        ${err && html`<div class="alert" style=${{ marginTop: '10px' }}><span>${err}</span></div>`}
+        <button type="button" class="link-btn" style=${{ marginTop: '12px' }} onClick=${importLocal} disabled=${busy}>⬆ Importar mis datos del navegador</button>
+        <div class="muted" style=${{ marginTop: '8px', fontSize: '11px' }}>Tus datos (inventario, clientes, órdenes, notas, caja) se guardan en la nube y se pueden exportar como respaldo.</div>
+      </div>
+    </div>
+  `;
+}
+
 /* ---------- App: panel de búsqueda lateral + ficha en vivo ---------- */
 function App() {
   const initialURL = useRef(readURLState()).current;
@@ -1209,6 +1275,18 @@ function App() {
   const [showGarage, setShowGarage] = useState(false);
   const [viewState, setViewState] = useState('home'); // 'home' | 'search' | 'calculators' | 'tools'
   const [microApp, setMicroApp] = useState(null);     // micro app abierta desde el dashboard
+  // ── Sesión del taller (cuenta de mecánico) ──
+  const [user, setUser] = useState(null);
+  const [authChecked, setAuthChecked] = useState(false);
+  useEffect(() => {
+    fetch('/api/auth/me', { credentials: 'same-origin' })
+      .then(r => { if (!r.ok) throw new Error('no-session'); return r.json(); })
+      .then(setUser).catch(() => setUser(null))
+      .finally(() => setAuthChecked(true));
+  }, []);
+  const logout = () => {
+    fetch('/api/auth/logout', { method: 'POST', credentials: 'same-origin' }).finally(() => setUser(null));
+  };
   const garage = useGarage();
   const seqRef = useRef(0);
   const listRef = useRef(null);
@@ -1327,8 +1405,10 @@ function App() {
       aid: () => { /* identificador IA: abre el chat con prompt */ setViewState('search'); },
     };
     if (map[id]) return map[id]();
-    // micro apps del dashboard (componentes propios)
-    const apps = { dtc: 'DtcApp', torque: 'TorqueApp', spark: 'SparkApp', cross: 'CrossApp', convert: 'ConverterApp', vin: 'VinApp', pressure: 'PressureApp', regulator: 'RegulatorApp', orders: 'OrdersApp', inventory: 'InventoryApp', clients: 'ClientsApp', notes: 'NotesApp', cash: 'CashApp', forum: 'ForumApp', connect: 'ConnectApp', market: 'MarketApp', timing: 'TimingApp' };
+    // micro apps del dashboard (componentes propios); las de negocio requieren sesión
+    const apps = { dtc: 'DtcApp', torque: 'TorqueApp', spark: 'SparkApp', cross: 'CrossApp', convert: 'ConverterApp', vin: 'VinApp', pressure: 'PressureApp', regulator: 'RegulatorApp', orders: 'OrdersApp', inventory: 'InventoryApp', clients: 'ClientsApp', notes: 'NotesApp', cash: 'CashApp', forum: 'ForumApp', connect: 'ConnectApp', quickdiag: 'QuickDiagApp', documents: 'DocumentsApp', market: 'MarketApp', timing: 'TimingApp' };
+    const protectedIds = ['orders', 'inventory', 'clients', 'notes', 'cash', 'documents'];
+    if (protectedIds.includes(id) && !user) return; // requiere login (el candado está en el Home)
     if (apps[id] && FT[apps[id]]) { setMicroApp(apps[id]); setViewState('home'); }
   };
   const closeMicro = () => setMicroApp(null);
@@ -1340,8 +1420,10 @@ function App() {
       const AppComp = FT[microApp];
       return html`<div class="micro-app-view">${html`<${AppComp} onBack=${closeMicro} />`}</div>`;
     }
+    if (!authChecked) return html`<div class="home"><div class="empty">Cargando…</div></div>`;
     if (FT.Home) {
-      return html`<${FT.Home} onOpen=${openMicro} />`;
+      if (!user) return html`<${LoginScreen} onLogin=${setUser} />`;
+      return html`<${FT.Home} onOpen=${openMicro} user=${user} onLogout=${logout} />`;
     }
   }
 

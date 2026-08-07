@@ -60,6 +60,10 @@ const toInt = (v, min, max) => {
 
 const psiToBar = (psi) => psi == null ? null : +(psi * 0.0689476).toFixed(2);
 
+/* Saneo de parámetros de texto/número para rutas de negocio */
+const str = (x, max = 500) => (typeof x === 'string' ? x.trim().slice(0, max) : '');
+const num = (x) => (Number.isFinite(Number(x)) && x !== '' && x !== null ? Number(x) : null);
+
 /* Crea y configura la aplicación Express.
    Recibe instancias de Database (better-sqlite3) para fueltech y stats.
    Esto permite tests con bases en memoria sin tocar los archivos reales. */
@@ -1203,8 +1207,6 @@ ${dbContext}`;
   const BODY_TYPES = ['sedan', 'hatchback', 'pickup', 'suv', 'van'];
   const ZONES = ['rear_seat', 'tank_drop', 'trunk_access', 'frame_rail'];
   const ASSEMBLY = ['external', 'hanger_tbi', 'hanger_return', 'module_returnless', 'vortec', 'gdi_low'];
-  const str = (x, max = 500) => (typeof x === 'string' ? x.trim().slice(0, max) : '');
-  const num = (x) => (Number.isFinite(Number(x)) && x !== '' && x !== null ? Number(x) : null);
 
   const adminLimiter = rateLimit({ windowMs: 60_000, limit: 40, standardHeaders: true, legacyHeaders: false });
   const requireAdmin = (req, res, next) => {
@@ -1414,6 +1416,794 @@ ${dbContext}`;
     res.set('Cache-Control', 'no-store').json(rows);
   });
 
+  // Import masivo de vehículos desde CSV (marca, modelo, años, motor, inyección, psi, zona...)
+  app.post('/api/admin/vehicles/import', requireAdmin, async (req, res) => {
+    const rows = Array.isArray(req.body?.rows) ? req.body.rows.slice(0, 2000) : [];
+    if (!rows.length) return res.status(400).json({ error: 'Sin filas para importar' });
+    const injMap = { MFI: 1, TBI: 2, VORTEC_CSFI: 3, GDI: 4 };
+    // IDs por código: [MFI, TBI, VORTEC_CSFI, GDI] según el seed estándar
+    const getInj = async (code) => {
+      const norm = String(code || '').trim().toUpperCase();
+      if (injMap[norm]) return injMap[norm];
+      const row = await db.get('SELECT id FROM injection_types WHERE code = ?', norm);
+      return row?.id || 1;
+    };
+    let ok = 0, skipped = 0; const errors = [];
+    await db.exec('BEGIN'); try {
+      for (const r of rows) {
+        try {
+          const marca = str(r.marca, 60), modelo = str(r.modelo, 80);
+          const y1 = toInt(r.y1, 1900, 2100), y2 = toInt(r.y2, 1900, 2100);
+          const motor = str(r.motor, 80), psiMin = num(r.psiMin), psiMax = num(r.psiMax);
+          if (!marca || !modelo || !motor || psiMin === null || psiMax === null || y1 === null || y2 === null) { skipped++; continue; }
+          let brand = await db.get('SELECT id FROM brands WHERE name = ?', marca);
+          if (!brand) {
+            const info = await db.run('INSERT INTO brands (name) VALUES (?)', marca);
+            brand = { id: info.lastInsertRowid };
+          }
+          const injId = await getInj(r.inj);
+          const zone = ['rear_seat', 'trunk_access', 'tank_drop', 'frame_rail'].includes(r.zona) ? r.zona : 'tank_drop';
+          const vehicle_id = await db.insertReturningId(`INSERT INTO vehicles
+            (brand_id, model, year_from, year_to, engine, body_type, injection_type_id, rail_pressure_psi_min, rail_pressure_psi_max)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+            [brand.id, modelo, y1, y2, motor, ['sedan','hatchback','pickup','suv','van'].includes(r.carroceria) ? r.carroceria : 'sedan', injId, psiMin, psiMax]);
+          const module_id = await db.insertReturningId(`INSERT INTO fuel_modules (code, name, assembly_type, regulated_psi, flow_lph)
+            VALUES (?, ?, 'module_returnless', ?, 110)`,
+            [`FTM-IMP-${vehicle_id}`, `Módulo ${marca} ${modelo} (importado)`, +(psiMax * 0.75).toFixed(1)]);
+          await db.run(`INSERT INTO vehicle_modules (vehicle_id, module_id, location_text, location_zone, requires_tank_removal, access_notes)
+            VALUES (?, ?, ?, ?, ?, ?)`,
+            [vehicle_id, module_id, str(r.ubica, 300) || 'Dentro del tanque.', zone, r.tanque ? 1 : 0, null]);
+          ok++;
+        } catch (e) { errors.push(String(e.message || e).slice(0, 120)); }
+      }
+      await db.exec('COMMIT');
+    } catch (e) { await db.exec('ROLLBACK'); throw e; }
+    metaCache = null; pumpsCache = null;
+    res.json({ ok, skipped, errors });
+  });
+
+  /* ================================================================
+     CUENTAS DE TALLER (auth multi-mecánico) + DATOS DE NEGOCIO
+     ================================================================ */
+
+  const SESSION_TTL_MS = 30 * 24 * 3600e3; // 30 días
+  const SESSION_COOKIE = 'ftm_session';
+
+  // scrypt: hash con sal por usuario (formato: scrypt$N$r$p$sal$hash → 6 partes)
+  function hashPassword(pass) {
+    const salt = crypto.randomBytes(16);
+    const hash = crypto.scryptSync(pass, salt, 64);
+    return `scrypt$${16384}$${8}$${1}$${salt.toString('base64')}$${hash.toString('base64')}`;
+  }
+  function verifyPassword(pass, stored) {
+    try {
+      const parts = stored.split('$');
+      if (parts[0] !== 'scrypt' || parts.length !== 6) return false;
+      const N = Number(parts[1]), r = Number(parts[2]), p = Number(parts[3]);
+      const salt = Buffer.from(parts[4], 'base64');
+      const hash = Buffer.from(parts[5], 'base64');
+      const calc = crypto.scryptSync(pass, salt, hash.length, { N, r, p });
+      return calc.length === hash.length && crypto.timingSafeEqual(calc, hash);
+    } catch { return false; }
+  }
+  const hashToken = (t) => crypto.createHash('sha256').update(t).digest('hex');
+  const tokenCookieOpts = () => ({
+    httpOnly: true, sameSite: 'lax', path: '/',
+    secure: PROD, maxAge: SESSION_TTL_MS
+  });
+
+  const requireWorkshop = async (req, res, next) => {
+    let token = req.headers.authorization?.startsWith('Bearer ') ? req.headers.authorization.slice(7) : '';
+    if (!token) token = (req.cookies?.ftm_session) || '';
+    // cookie-parser no está: leer de la cabecera cruda
+    if (!token) {
+      const raw = req.headers.cookie || '';
+      const m = raw.match(/(?:^|;\s*)ftm_session=([^;]+)/);
+      if (m) token = decodeURIComponent(m[1]);
+    }
+    if (!token) return res.status(401).json({ error: 'Inicia sesión primero' });
+    const sess = await db.get(
+      `SELECT workshop_id, expires_at FROM sessions WHERE token_hash = ?`,
+      hashToken(token)
+    );
+    if (!sess) return res.status(401).json({ error: 'Sesión inválida' });
+    if (new Date(sess.expires_at).getTime() < Date.now()) {
+      await db.run('DELETE FROM sessions WHERE token_hash = ?', hashToken(token));
+      return res.status(401).json({ error: 'Sesión expirada' });
+    }
+    req.workshopId = sess.workshop_id;
+    req.sessionTokenHash = hashToken(token);
+    next();
+  };
+
+  const authLimiter = rateLimit({ windowMs: 60_000, limit: 20, standardHeaders: true, legacyHeaders: false });
+
+  // Registro: crea taller + sesión
+  app.post('/api/auth/register', authLimiter, async (req, res) => {
+    const email = str(req.body?.email, 120).toLowerCase();
+    const pass = typeof req.body?.password === 'string' ? req.body.password : '';
+    const name = str(req.body?.name, 120);
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return res.status(400).json({ error: 'Correo inválido' });
+    if (pass.length < 8) return res.status(400).json({ error: 'La contraseña debe tener al menos 8 caracteres' });
+    if (!name) return res.status(400).json({ error: 'Nombre del taller requerido' });
+    const exists = await db.get('SELECT id FROM workshops WHERE email = ?', email);
+    if (exists) return res.status(409).json({ error: 'Ya existe una cuenta con ese correo' });
+    const id = await db.insertReturningId(
+      'INSERT INTO workshops (email, pass_hash, name) VALUES (?, ?, ?)',
+      [email, hashPassword(pass), name]
+    );
+    const token = crypto.randomBytes(32).toString('base64url');
+    await db.run('INSERT INTO sessions (token_hash, workshop_id, expires_at) VALUES (?, ?, ?)',
+      [hashToken(token), id, new Date(Date.now() + SESSION_TTL_MS).toISOString()]);
+    res.set('Cache-Control', 'no-store')
+      .cookie(SESSION_COOKIE, token, tokenCookieOpts())
+      .status(201).json({ id, name, email });
+  });
+
+  // Login
+  app.post('/api/auth/login', authLimiter, async (req, res) => {
+    const email = str(req.body?.email, 120).toLowerCase();
+    const pass = typeof req.body?.password === 'string' ? req.body.password : '';
+    const ws = await db.get('SELECT * FROM workshops WHERE email = ?', email);
+    if (!ws || !verifyPassword(pass, ws.pass_hash)) {
+      return res.status(401).json({ error: 'Correo o contraseña incorrectos' });
+    }
+    const token = crypto.randomBytes(32).toString('base64url');
+    await db.run('INSERT INTO sessions (token_hash, workshop_id, expires_at) VALUES (?, ?, ?)',
+      [hashToken(token), ws.id, new Date(Date.now() + SESSION_TTL_MS).toISOString()]);
+    res.set('Cache-Control', 'no-store')
+      .cookie(SESSION_COOKIE, token, tokenCookieOpts())
+      .json({ id: ws.id, name: ws.name, email: ws.email });
+  });
+
+  app.post('/api/auth/logout', async (req, res) => {
+    const raw = req.headers.cookie || '';
+    const m = raw.match(/(?:^|;\s*)ftm_session=([^;]+)/);
+    if (m) await db.run('DELETE FROM sessions WHERE token_hash = ?', hashToken(decodeURIComponent(m[1])));
+    res.clearCookie(SESSION_COOKIE, { path: '/' });
+    res.json({ ok: true });
+  });
+
+  app.get('/api/auth/me', requireWorkshop, async (req, res) => {
+    const ws = await db.get('SELECT id, name, email FROM workshops WHERE id = ?', req.workshopId);
+    if (!ws) return res.status(401).json({ error: 'Cuenta no encontrada' });
+    res.set('Cache-Control', 'no-store').json(ws);
+  });
+
+  /* ---- Inventario ---- */
+  app.get('/api/inventory', requireWorkshop, async (req, res) => {
+    const rows = await db.all('SELECT * FROM inventory_items WHERE workshop_id = ? ORDER BY name', req.workshopId);
+    res.set('Cache-Control', 'no-store').json(rows);
+  });
+
+  app.post('/api/inventory', requireWorkshop, async (req, res) => {
+    const b = req.body || {};
+    const name = str(b.name, 120);
+    if (!name) return res.status(400).json({ error: 'Nombre requerido' });
+    const id = await db.insertReturningId(`INSERT INTO inventory_items
+      (workshop_id, name, sku, category, qty, min_qty, unit_price, notes)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+      [req.workshopId, name, str(b.sku, 60) || null, str(b.category, 60) || null,
+       num(b.qty) ?? 0, num(b.min_qty) ?? 0, num(b.unit_price) ?? 0, str(b.notes, 500) || null]);
+    res.status(201).json({ id });
+  });
+
+  app.put('/api/inventory/:id', requireWorkshop, async (req, res) => {
+    const id = toInt(req.params.id, 1, 1e9);
+    const b = req.body || {};
+    const name = str(b.name, 120);
+    if (!name) return res.status(400).json({ error: 'Nombre requerido' });
+    const info = await db.run(`UPDATE inventory_items SET name=?, sku=?, category=?, min_qty=?, unit_price=?, notes=?
+      WHERE id=? AND workshop_id=?`,
+      [name, str(b.sku, 60) || null, str(b.category, 60) || null,
+       num(b.min_qty) ?? 0, num(b.unit_price) ?? 0, str(b.notes, 500) || null, id, req.workshopId]);
+    if (!info.changes) return res.status(404).json({ error: 'No encontrado' });
+    res.json({ ok: true });
+  });
+
+  app.delete('/api/inventory/:id', requireWorkshop, async (req, res) => {
+    const id = toInt(req.params.id, 1, 1e9);
+    const info = await db.run('DELETE FROM inventory_items WHERE id=? AND workshop_id=?', [id, req.workshopId]);
+    if (!info.changes) return res.status(404).json({ error: 'No encontrado' });
+    res.json({ ok: true });
+  });
+
+  // Movimiento (entrada/salida/ajuste): registra y actualiza stock
+  app.post('/api/inventory/:id/moves', requireWorkshop, async (req, res) => {
+    const id = toInt(req.params.id, 1, 1e9);
+    const b = req.body || {};
+    const delta = num(b.delta);
+    const kind = ['entrada', 'salida', 'ajuste'].includes(b.kind) ? b.kind : 'ajuste';
+    if (delta === null) return res.status(400).json({ error: 'Delta requerido' });
+    const item = await db.get('SELECT qty FROM inventory_items WHERE id=? AND workshop_id=?', [id, req.workshopId]);
+    if (!item) return res.status(404).json({ error: 'No encontrado' });
+    const newQty = Math.max(0, item.qty + delta);
+    await db.exec('BEGIN'); try {
+      await db.run(`UPDATE inventory_items SET qty=? WHERE id=? AND workshop_id=?`, [newQty, id, req.workshopId]);
+      await db.run(`INSERT INTO inventory_moves (workshop_id, item_id, delta, kind, note) VALUES (?,?,?,?,?)`,
+        [req.workshopId, id, delta, kind, str(b.note, 300) || null]);
+      await db.exec('COMMIT');
+    } catch (e) { await db.exec('ROLLBACK'); throw e; }
+    res.json({ ok: true, qty: newQty });
+  });
+
+  app.get('/api/inventory/moves', requireWorkshop, async (req, res) => {
+    const rows = await db.all(`SELECT m.*, i.name AS item_name FROM inventory_moves m
+      JOIN inventory_items i ON i.id = m.item_id
+      WHERE m.workshop_id = ? ORDER BY m.id DESC LIMIT 500`, req.workshopId);
+    res.set('Cache-Control', 'no-store').json(rows);
+  });
+
+  app.get('/api/inventory/export', requireWorkshop, async (req, res) => {
+    const rows = await db.all('SELECT name, sku, category, qty, min_qty, unit_price, notes FROM inventory_items WHERE workshop_id = ? ORDER BY name', req.workshopId);
+    if (req.query.format === 'csv') {
+      const head = ['Nombre', 'SKU', 'Categoría', 'Cantidad', 'Mínimo', 'Precio', 'Notas'];
+      const esc = (v) => `"${String(v ?? '').replace(/"/g, '""')}"`;
+      const csv = [head.join(','), ...rows.map(r => [r.name, r.sku, r.category, r.qty, r.min_qty, r.unit_price, r.notes].map(esc).join(','))].join('\n');
+      res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+      res.setHeader('Content-Disposition', 'attachment; filename="inventario.csv"');
+      return res.send(csv);
+    }
+    res.json(rows);
+  });
+
+  /* ---- Clientes + vehículos ---- */
+  app.get('/api/clients', requireWorkshop, async (req, res) => {
+    const rows = await db.all('SELECT * FROM clients WHERE workshop_id = ? ORDER BY name', req.workshopId);
+    // Adjuntar vehículos de cada cliente para el selector de órdenes
+    const out = [];
+    for (const c of rows) {
+      const vehicles = await db.all('SELECT id, brand, model, year, plate FROM client_vehicles WHERE client_id = ? AND workshop_id = ?', [c.id, req.workshopId]);
+      out.push({ ...c, vehicles });
+    }
+    res.set('Cache-Control', 'no-store').json(out);
+  });
+
+  app.post('/api/clients', requireWorkshop, async (req, res) => {
+    const b = req.body || {};
+    const name = str(b.name, 120);
+    if (!name) return res.status(400).json({ error: 'Nombre requerido' });
+    const id = await db.insertReturningId(`INSERT INTO clients (workshop_id, name, phone, email, address, city, notes)
+      VALUES (?, ?, ?, ?, ?, ?, ?)`,
+      [req.workshopId, name, str(b.phone, 40) || null, str(b.email, 120) || null,
+       str(b.address, 300) || null, str(b.city, 120) || null, str(b.notes, 500) || null]);
+    res.status(201).json({ id });
+  });
+
+  app.put('/api/clients/:id', requireWorkshop, async (req, res) => {
+    const id = toInt(req.params.id, 1, 1e9);
+    const b = req.body || {};
+    const name = str(b.name, 120);
+    if (!name) return res.status(400).json({ error: 'Nombre requerido' });
+    const info = await db.run(`UPDATE clients SET name=?, phone=?, email=?, address=?, city=?, notes=?
+      WHERE id=? AND workshop_id=?`,
+      [name, str(b.phone, 40) || null, str(b.email, 120) || null, str(b.address, 300) || null,
+       str(b.city, 120) || null, str(b.notes, 500) || null, id, req.workshopId]);
+    if (!info.changes) return res.status(404).json({ error: 'No encontrado' });
+    res.json({ ok: true });
+  });
+
+  app.delete('/api/clients/:id', requireWorkshop, async (req, res) => {
+    const id = toInt(req.params.id, 1, 1e9);
+    const info = await db.run('DELETE FROM clients WHERE id=? AND workshop_id=?', [id, req.workshopId]);
+    if (!info.changes) return res.status(404).json({ error: 'No encontrado' });
+    res.json({ ok: true });
+  });
+
+  app.get('/api/clients/:id/vehicles', requireWorkshop, async (req, res) => {
+    const cid = toInt(req.params.id, 1, 1e9);
+    const rows = await db.all('SELECT * FROM client_vehicles WHERE workshop_id=? AND client_id=? ORDER BY id', [req.workshopId, cid]);
+    res.set('Cache-Control', 'no-store').json(rows);
+  });
+
+  app.post('/api/clients/:id/vehicles', requireWorkshop, async (req, res) => {
+    const cid = toInt(req.params.id, 1, 1e9);
+    const b = req.body || {};
+    const owner = await db.get('SELECT id FROM clients WHERE id=? AND workshop_id=?', [cid, req.workshopId]);
+    if (!owner) return res.status(404).json({ error: 'Cliente no encontrado' });
+    const vid = await db.insertReturningId(`INSERT INTO client_vehicles (workshop_id, client_id, brand, model, year, plate, vin, notes)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+      [req.workshopId, cid, str(b.brand, 60) || null, str(b.model, 80) || null,
+       toInt(b.year, 1900, 2100), str(b.plate, 20).toUpperCase() || null, str(b.vin, 30) || null, str(b.notes, 300) || null]);
+    res.status(201).json({ id: vid });
+  });
+
+  app.delete('/api/clients/vehicles/:vid', requireWorkshop, async (req, res) => {
+    const vid = toInt(req.params.vid, 1, 1e9);
+    const info = await db.run('DELETE FROM client_vehicles WHERE id=? AND workshop_id=?', [vid, req.workshopId]);
+    if (!info.changes) return res.status(404).json({ error: 'No encontrado' });
+    res.json({ ok: true });
+  });
+
+  /* ---- Órdenes de trabajo ---- */
+  const ORDER_TYPES = ['reparacion', 'servicio', 'garantia', 'promocion', 'otro'];
+  const ORDER_STATUS = ['Pendiente', 'En proceso', 'Listo', 'Entregado', 'Cancelado'];
+
+  app.get('/api/orders', requireWorkshop, async (req, res) => {
+    const where = ['o.workshop_id = ?']; const args = [req.workshopId];
+    if (req.query.status && ORDER_STATUS.includes(req.query.status)) { where.push('o.status = ?'); args.push(req.query.status); }
+    if (req.query.type && ORDER_TYPES.includes(req.query.type)) { where.push('o.type = ?'); args.push(req.query.type); }
+    const rows = await db.all(`SELECT o.*, c.name AS client_name, cv.model AS vehicle_model, cv.plate
+      FROM work_orders o
+      LEFT JOIN clients c ON c.id = o.client_id
+      LEFT JOIN client_vehicles cv ON cv.id = o.vehicle_id
+      WHERE ${where.join(' AND ')} ORDER BY o.id DESC LIMIT 500`, args);
+    res.set('Cache-Control', 'no-store').json(rows);
+  });
+
+  app.post('/api/orders', requireWorkshop, async (req, res) => {
+    const b = req.body || {};
+    const title = str(b.title, 200);
+    if (!title) return res.status(400).json({ error: 'Título requerido' });
+    const type = ORDER_TYPES.includes(b.type) ? b.type : 'reparacion';
+    const status = ORDER_STATUS.includes(b.status) ? b.status : 'Pendiente';
+    const client_id = toInt(b.client_id, 1, 1e9);
+    const vehicle_id = toInt(b.vehicle_id, 1, 1e9);
+    const id = await db.insertReturningId(`INSERT INTO work_orders (workshop_id, client_id, vehicle_id, type, title, descr, status)
+      VALUES (?, ?, ?, ?, ?, ?, ?)`,
+      [req.workshopId, client_id, vehicle_id, type, title, str(b.descr, 2000) || null, status]);
+    res.status(201).json({ id });
+  });
+
+  app.put('/api/orders/:id', requireWorkshop, async (req, res) => {
+    const id = toInt(req.params.id, 1, 1e9);
+    const b = req.body || {};
+    const title = str(b.title, 200);
+    if (!title) return res.status(400).json({ error: 'Título requerido' });
+    const type = ORDER_TYPES.includes(b.type) ? b.type : 'reparacion';
+    const status = ORDER_STATUS.includes(b.status) ? b.status : 'Pendiente';
+    const closed_at = status === 'Entregado' ? (new Date().toISOString()) : null;
+    const info = await db.run(`UPDATE work_orders SET client_id=?, vehicle_id=?, type=?, title=?, descr=?, status=?, closed_at=COALESCE(?, closed_at)
+      WHERE id=? AND workshop_id=?`,
+      [toInt(b.client_id, 1, 1e9), toInt(b.vehicle_id, 1, 1e9), type, title, str(b.descr, 2000) || null, status, closed_at, id, req.workshopId]);
+    if (!info.changes) return res.status(404).json({ error: 'No encontrado' });
+    res.json({ ok: true });
+  });
+
+  app.delete('/api/orders/:id', requireWorkshop, async (req, res) => {
+    const id = toInt(req.params.id, 1, 1e9);
+    const info = await db.run('DELETE FROM work_orders WHERE id=? AND workshop_id=?', [id, req.workshopId]);
+    if (!info.changes) return res.status(404).json({ error: 'No encontrado' });
+    res.json({ ok: true });
+  });
+
+  app.get('/api/orders/:id', requireWorkshop, async (req, res) => {
+    const id = toInt(req.params.id, 1, 1e9);
+    const order = await db.get('SELECT * FROM work_orders WHERE id=? AND workshop_id=?', [id, req.workshopId]);
+    if (!order) return res.status(404).json({ error: 'No encontrado' });
+    const items = await db.all('SELECT * FROM work_order_items WHERE order_id=? AND workshop_id=?', [id, req.workshopId]);
+    const photos = await db.all('SELECT id, caption, created_at FROM work_order_photos WHERE order_id=? AND workshop_id=?', [id, req.workshopId]);
+    const total = items.reduce((s, i) => s + (Number(i.line_total) || 0), 0);
+    if (Math.abs(total - (order.total || 0)) > 0.001) {
+      await db.run('UPDATE work_orders SET total=? WHERE id=?', [total, id]);
+      order.total = total;
+    }
+    res.set('Cache-Control', 'no-store').json({ ...order, items, photos });
+  });
+
+  // Items de una orden: al agregar se descuenta stock (kind 'orden')
+  app.post('/api/orders/:id/items', requireWorkshop, async (req, res) => {
+    const oid = toInt(req.params.id, 1, 1e9);
+    const b = req.body || {};
+    const descr = str(b.descr, 200);
+    if (!descr) return res.status(400).json({ error: 'Descripción requerida' });
+    const order = await db.get('SELECT id, status FROM work_orders WHERE id=? AND workshop_id=?', [oid, req.workshopId]);
+    if (!order) return res.status(404).json({ error: 'Orden no encontrada' });
+    const qty = num(b.qty) ?? 1;
+    const unit_price = num(b.unit_price) ?? 0;
+    const line_total = +(qty * unit_price).toFixed(2);
+    const item_id = toInt(b.item_id, 1, 1e9);
+    await db.exec('BEGIN'); try {
+      const iid = await db.insertReturningId(`INSERT INTO work_order_items (workshop_id, order_id, item_id, descr, qty, unit_price, line_total)
+        VALUES (?, ?, ?, ?, ?, ?, ?)`, [req.workshopId, oid, item_id, descr, qty, unit_price, line_total]);
+      if (item_id) {
+        const item = await db.get('SELECT qty FROM inventory_items WHERE id=? AND workshop_id=?', [item_id, req.workshopId]);
+        if (item) {
+          const newQty = Math.max(0, item.qty - qty);
+          await db.run('UPDATE inventory_items SET qty=? WHERE id=? AND workshop_id=?', [newQty, item_id, req.workshopId]);
+          await db.run(`INSERT INTO inventory_moves (workshop_id, item_id, delta, kind, order_id, note)
+            VALUES (?, ?, ?, 'orden', ?, ?)`, [req.workshopId, item_id, -qty, oid, `Consumo en orden #${oid}`]);
+        }
+      }
+      await db.exec('COMMIT');
+      res.status(201).json({ id: iid });
+    } catch (e) { await db.exec('ROLLBACK'); throw e; }
+  });
+
+  app.delete('/api/orders/:id/items/:iid', requireWorkshop, async (req, res) => {
+    const oid = toInt(req.params.id, 1, 1e9);
+    const iid = toInt(req.params.iid, 1, 1e9);
+    const it = await db.get('SELECT * FROM work_order_items WHERE id=? AND order_id=? AND workshop_id=?', [iid, oid, req.workshopId]);
+    if (!it) return res.status(404).json({ error: 'No encontrado' });
+    await db.exec('BEGIN'); try {
+      await db.run('DELETE FROM work_order_items WHERE id=?', [iid]);
+      if (it.item_id) {
+        await db.run('UPDATE inventory_items SET qty = qty + ? WHERE id=? AND workshop_id=?', [it.qty, it.item_id, req.workshopId]);
+        await db.run(`INSERT INTO inventory_moves (workshop_id, item_id, delta, kind, order_id, note)
+          VALUES (?, ?, ?, 'ajuste', ?, ?)`, [req.workshopId, it.item_id, it.qty, oid, `Devolución item #${iid} de orden #${oid}`]);
+      }
+      await db.exec('COMMIT');
+    } catch (e) { await db.exec('ROLLBACK'); throw e; }
+    res.json({ ok: true });
+  });
+
+  // Evidencia (fotos) de una orden
+  app.post('/api/orders/:id/photos', requireWorkshop, async (req, res) => {
+    const oid = toInt(req.params.id, 1, 1e9);
+    const b = req.body || {};
+    const photo = typeof b.photo === 'string' && b.photo.startsWith('data:image/') ? b.photo : '';
+    if (!photo) return res.status(400).json({ error: 'Foto inválida (data URL de imagen requerida)' });
+    if (photo.length > 350_000) return res.status(400).json({ error: 'Foto demasiado grande (máx ~260 KB base64)' });
+    const cnt = (await db.get('SELECT COUNT(*) c FROM work_order_photos WHERE order_id=? AND workshop_id=?', [oid, req.workshopId]))?.c || 0;
+    if (cnt >= 6) return res.status(400).json({ error: 'Máximo 6 fotos por orden' });
+    const order = await db.get('SELECT id FROM work_orders WHERE id=? AND workshop_id=?', [oid, req.workshopId]);
+    if (!order) return res.status(404).json({ error: 'Orden no encontrada' });
+    const pid = await db.insertReturningId(`INSERT INTO work_order_photos (workshop_id, order_id, photo, caption) VALUES (?, ?, ?, ?)`,
+      [req.workshopId, oid, photo, str(b.caption, 200) || null]);
+    res.status(201).json({ id: pid });
+  });
+
+  app.delete('/api/orders/:id/photos/:pid', requireWorkshop, async (req, res) => {
+    const oid = toInt(req.params.id, 1, 1e9);
+    const pid = toInt(req.params.pid, 1, 1e9);
+    const info = await db.run('DELETE FROM work_order_photos WHERE id=? AND order_id=? AND workshop_id=?', [pid, oid, req.workshopId]);
+    if (!info.changes) return res.status(404).json({ error: 'No encontrado' });
+    res.json({ ok: true });
+  });
+
+  app.post('/api/orders/:id/status', requireWorkshop, async (req, res) => {
+    const oid = toInt(req.params.id, 1, 1e9);
+    const status = ORDER_STATUS.includes(req.body?.status) ? req.body.status : null;
+    if (!status) return res.status(400).json({ error: 'Estado inválido' });
+    const closed_at = status === 'Entregado' ? new Date().toISOString() : null;
+    const info = await db.run(`UPDATE work_orders SET status=?, closed_at=COALESCE(?, closed_at) WHERE id=? AND workshop_id=?`,
+      [status, closed_at, oid, req.workshopId]);
+    if (!info.changes) return res.status(404).json({ error: 'No encontrado' });
+    res.json({ ok: true });
+  });
+
+  /* ---- Documentos: notas de entrega y presupuestos ---- */
+  const DOC_KINDS = ['entrega', 'presupuesto'];
+  const DOC_STATUS = ['borrador', 'emitido', 'aprobado', 'rechazado', 'entregado'];
+
+  const nextDocNumber = async (ws, kind) => {
+    const prefix = kind === 'entrega' ? 'NE' : 'P';
+    const row = await db.get('SELECT COUNT(*) c FROM documents WHERE workshop_id=? AND kind=?', [ws, kind]);
+    return `${prefix}-${String((row?.c || 0) + 1).padStart(4, '0')}`;
+  };
+
+  app.get('/api/documents', requireWorkshop, async (req, res) => {
+    const rows = await db.all(`SELECT d.*, c.name AS client_name FROM documents d
+      LEFT JOIN clients c ON c.id = d.client_id
+      WHERE d.workshop_id = ? ORDER BY d.id DESC LIMIT 500`, req.workshopId);
+    res.set('Cache-Control', 'no-store').json(rows);
+  });
+
+  app.get('/api/documents/export', requireWorkshop, async (req, res) => {
+    const rows = await db.all(`SELECT d.number, d.kind, d.status, d.total, d.created_at, c.name AS client_name FROM documents d
+      LEFT JOIN clients c ON c.id = d.client_id WHERE d.workshop_id = ? ORDER BY d.id`, req.workshopId);
+    if (req.query.format === 'csv') {
+      const head = ['Número', 'Tipo', 'Estado', 'Cliente', 'Total', 'Fecha'];
+      const esc = (v) => `"${String(v ?? '').replace(/"/g, '""')}"`;
+      const csv = [head.join(','), ...rows.map(r => [r.number, r.kind, r.status, r.client_name, r.total, r.created_at].map(esc).join(','))].join('\n');
+      res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+      res.setHeader('Content-Disposition', 'attachment; filename="documentos.csv"');
+      return res.send(csv);
+    }
+    res.json(rows);
+  });
+
+  app.post('/api/documents', requireWorkshop, async (req, res) => {
+    const b = req.body || {};
+    const kind = DOC_KINDS.includes(b.kind) ? b.kind : null;
+    if (!kind) return res.status(400).json({ error: 'Tipo de documento inválido (entrega|presupuesto)' });
+    const items = Array.isArray(b.items) ? b.items.slice(0, 200) : [];
+    if (!items.length) return res.status(400).json({ error: 'El documento necesita al menos un item' });
+    const client_id = toInt(b.client_id, 1, 1e9);
+    const order_id = toInt(b.order_id, 1, 1e9);
+    const number = await nextDocNumber(req.workshopId, kind);
+    let total = 0;
+    await db.exec('BEGIN'); try {
+      const did = await db.insertReturningId(`INSERT INTO documents (workshop_id, kind, number, client_id, order_id, status) VALUES (?, ?, ?, ?, ?, ?)`,
+        [req.workshopId, kind, number, client_id, order_id, 'emitido']);
+      for (const it of items) {
+        const descr = str(it.descr, 200);
+        if (!descr) continue;
+        const qty = num(it.qty) ?? 1;
+        const unit_price = num(it.unit_price) ?? 0;
+        const line_total = +(qty * unit_price).toFixed(2);
+        total += line_total;
+        await db.run(`INSERT INTO document_items (workshop_id, document_id, item_id, descr, qty, unit_price, line_total)
+          VALUES (?, ?, ?, ?, ?, ?, ?)`, [req.workshopId, did, toInt(it.item_id, 1, 1e9), descr, qty, unit_price, line_total]);
+      }
+      await db.run('UPDATE documents SET total=? WHERE id=?', [+total.toFixed(2), did]);
+      await db.exec('COMMIT');
+      res.status(201).json({ id: did, number });
+    } catch (e) { await db.exec('ROLLBACK'); throw e; }
+  });
+
+  app.get('/api/documents/:id', requireWorkshop, async (req, res) => {
+    const id = toInt(req.params.id, 1, 1e9);
+    const doc = await db.get('SELECT * FROM documents WHERE id=? AND workshop_id=?', [id, req.workshopId]);
+    if (!doc) return res.status(404).json({ error: 'No encontrado' });
+    const items = await db.all('SELECT * FROM document_items WHERE document_id=? AND workshop_id=?', [id, req.workshopId]);
+    const client = doc.client_id ? await db.get('SELECT name, phone, address FROM clients WHERE id=? AND workshop_id=?', [doc.client_id, req.workshopId]) : null;
+    const ws = await db.get('SELECT name FROM workshops WHERE id=?', req.workshopId);
+    res.set('Cache-Control', 'no-store').json({ ...doc, items, client, workshop: ws });
+  });
+
+  app.put('/api/documents/:id/status', requireWorkshop, async (req, res) => {
+    const id = toInt(req.params.id, 1, 1e9);
+    const status = DOC_STATUS.includes(req.body?.status) ? req.body.status : null;
+    if (!status) return res.status(400).json({ error: 'Estado inválido' });
+    const info = await db.run('UPDATE documents SET status=? WHERE id=? AND workshop_id=?', [status, id, req.workshopId]);
+    if (!info.changes) return res.status(404).json({ error: 'No encontrado' });
+    res.json({ ok: true });
+  });
+
+  app.delete('/api/documents/:id', requireWorkshop, async (req, res) => {
+    const id = toInt(req.params.id, 1, 1e9);
+    const info = await db.run('DELETE FROM documents WHERE id=? AND workshop_id=?', [id, req.workshopId]);
+    if (!info.changes) return res.status(404).json({ error: 'No encontrado' });
+    res.json({ ok: true });
+  });
+
+  // Vista imprimible de documento (nota de entrega / presupuesto)
+  app.get('/api/documents/:id/print', requireWorkshop, async (req, res) => {
+    const id = toInt(req.params.id, 1, 1e9);
+    const doc = await db.get('SELECT * FROM documents WHERE id=? AND workshop_id=?', [id, req.workshopId]);
+    if (!doc) return res.status(404).json({ error: 'No encontrado' });
+    const items = await db.all('SELECT * FROM document_items WHERE document_id=?', [id]);
+    const client = doc.client_id ? await db.get('SELECT * FROM clients WHERE id=?', [doc.client_id]) : null;
+    const ws = await db.get('SELECT name FROM workshops WHERE id=?', req.workshopId);
+    const kindLabel = doc.kind === 'entrega' ? 'NOTA DE ENTREGA' : 'PRESUPUESTO';
+    const escv = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+    const rowsHtml = items.map((i, idx) => `<tr>
+      <td>${idx + 1}</td><td>${escv(i.descr)}</td><td>${i.qty}</td>
+      <td>$${Number(i.unit_price || 0).toFixed(2)}</td><td>$${Number(i.line_total || 0).toFixed(2)}</td>
+    </tr>`).join('');
+    const html = `<!doctype html><html lang="es"><head><meta charset="utf-8">
+      <title>${kindLabel} ${escv(doc.number)}</title>
+      <style>
+        * { box-sizing: border-box; } body { font-family: Arial, Helvetica, sans-serif; color: #111; margin: 32px; }
+        .head { display: flex; justify-content: space-between; align-items: flex-start; border-bottom: 3px solid #AECC3A; padding-bottom: 14px; margin-bottom: 20px; }
+        .head h1 { font-size: 22px; margin: 0; letter-spacing: 2px; } .head .num { font-size: 26px; font-weight: 800; }
+        .meta { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 20px; font-size: 13px; }
+        .meta b { display: block; font-size: 10px; text-transform: uppercase; letter-spacing: 1px; color: #666; margin-bottom: 2px; }
+        table { width: 100%; border-collapse: collapse; font-size: 13px; }
+        th { background: #0F1113; color: #fff; text-align: left; padding: 8px; }
+        td { padding: 8px; border-bottom: 1px solid #ddd; }
+        .tot { text-align: right; margin-top: 16px; font-size: 18px; font-weight: 800; }
+        .foot { margin-top: 40px; display: flex; justify-content: space-between; font-size: 11px; color: #555; }
+        @media print { body { margin: 12px; } }
+      </style></head><body>
+        <div class="head">
+          <div><h1>${escv(ws?.name || 'Taller')}</h1><div style="font-size:11px;color:#666">FuelTech Master</div></div>
+          <div class="num">${kindLabel}<br>${escv(doc.number)}</div>
+        </div>
+        <div class="meta">
+          <div><b>Cliente</b>${escv(client?.name || '—')}<br>${escv(client?.phone || '')}</div>
+          <div><b>Fecha</b>${new Date(doc.created_at).toLocaleString('es')}<br><b>Estado</b>${doc.status}</div>
+        </div>
+        <table><thead><tr><th>#</th><th>Descripción</th><th>Cant.</th><th>P. Unit.</th><th>Total</th></tr></thead>
+        <tbody>${rowsHtml}</tbody></table>
+        <div class="tot">Total: $${Number(doc.total || 0).toFixed(2)}</div>
+        <div class="foot"><span>Generado por FuelTech Master</span><span>${escv(doc.number)} · ${new Date().toLocaleString('es')}</span></div>
+      </body></html>`;
+    res.send(html);
+  });
+
+  /* ---- Conexión cliente ↔ mecánico ---- */
+  const CONNECT_ROLES = ['mecanico', 'cliente', 'tienda'];
+
+  app.get('/api/connect/profiles', async (req, res) => {
+    const rows = await db.all('SELECT * FROM connect_profiles ORDER BY name');
+    res.set('Cache-Control', 'no-store').json(rows);
+  });
+
+  // Upsert del perfil propio (identificado por email)
+  app.post('/api/connect/profiles', async (req, res) => {
+    const b = req.body || {};
+    const email = str(b.email, 120).toLowerCase();
+    const name = str(b.name, 120);
+    const city = str(b.city, 120);
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return res.status(400).json({ error: 'Correo inválido' });
+    if (!name || !city) return res.status(400).json({ error: 'Nombre y ciudad son requeridos' });
+    const role = CONNECT_ROLES.includes(b.role) ? b.role : 'mecanico';
+    const existing = await db.get('SELECT id FROM connect_profiles WHERE email = ?', email);
+    const vals = [email, role, name, str(b.phone, 40) || null, city, str(b.zone, 80) || null,
+      str(b.address, 300) || null, num(b.lat), num(b.lng), str(b.offers, 500) || null, str(b.needs, 500) || null];
+    if (existing) {
+      await db.run(`UPDATE connect_profiles SET role=?, name=?, phone=?, city=?, zone=?, address=?, lat=?, lng=?, offers=?, needs=? WHERE id=?`,
+        [...vals.slice(1), existing.id]);
+      return res.json({ id: existing.id });
+    }
+    const id = await db.insertReturningId(`INSERT INTO connect_profiles (email, role, name, phone, city, zone, address, lat, lng, offers, needs)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`, vals);
+    res.status(201).json({ id });
+  });
+
+  const haversineKm = (lat1, lng1, lat2, lng2) => {
+    const R = 6371; const dLat = (lat2 - lat1) * Math.PI / 180; const dLng = (lng2 - lng1) * Math.PI / 180;
+    const a = Math.sin(dLat / 2) ** 2 + Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) * Math.sin(dLng / 2) ** 2;
+    return 2 * R * Math.asin(Math.sqrt(a));
+  };
+
+  // Matching por similitud: mismo lugar (ciudad/zona) + cercanía GPS + solape de ofrezco/busco
+  app.get('/api/connect/match', async (req, res) => {
+    const q = req.query || {};
+    const meCity = str(q.city, 120).toLowerCase();
+    const meZone = str(q.zone, 80).toLowerCase();
+    const myLat = num(q.lat), myLng = num(q.lng);
+    const radius = num(q.radius) ?? 25;
+    const meOffers = str(q.offers, 500).toLowerCase();
+    const meNeeds = str(q.needs, 500).toLowerCase();
+    const tokens = (s) => new Set(s.toLowerCase().split(/[^a-záéíóúñ0-9]+/i).filter(w => w.length > 2));
+    const myOff = tokens(meOffers), myNeed = tokens(meNeeds);
+    const profiles = await db.all('SELECT * FROM connect_profiles');
+    const out = [];
+    for (const p of profiles) {
+      // Si tengo coordenadas y el otro también → distancia real
+      let dist = null;
+      if (myLat != null && myLng != null && p.lat != null && p.lng != null) {
+        dist = haversineKm(myLat, myLng, p.lat, p.lng);
+        if (dist > radius) continue;
+      }
+      // Filtro por ciudad/zona (si el otro tiene datos y yo filtro por ciudad)
+      const pc = (p.city || '').toLowerCase(), pz = (p.zone || '').toLowerCase();
+      if (meCity && pc && pc !== meCity) continue;
+      if (meZone && pz && meZone !== pz) continue;
+      // Solape de ofrezco/busco: mecánico ofrece X ↔ cliente busca X
+      const pOff = tokens(p.offers || ''), pNeed = tokens(p.needs || '');
+      let overlap = 0;
+      for (const w of myOff) if (pNeed.has(w)) overlap++;
+      for (const w of myNeed) if (pOff.has(w)) overlap++;
+      out.push({ ...p, distance_km: dist != null ? +dist.toFixed(1) : null, match_score: overlap });
+    }
+    out.sort((a, b) => (b.match_score - a.match_score) || ((a.distance_km ?? 9999) - (b.distance_km ?? 9999)));
+    res.set('Cache-Control', 'no-store').json(out);
+  });
+
+  // Dado lat/lng del GPS, se guarda el perfil con coordenadas y se sugiere ciudad/zona
+  app.post('/api/connect/locate', async (req, res) => {
+    const lat = num(req.body?.lat), lng = num(req.body?.lng);
+    if (lat === null || lng === null || Math.abs(lat) > 90 || Math.abs(lng) > 180) {
+      return res.status(400).json({ error: 'Coordenadas inválidas' });
+    }
+    // Sin geocodificación inversa (sin API externa): devolvemos las coords para guardar
+    res.json({ lat, lng });
+  });
+
+  /* ---- Diagnóstico rápido de PSI ---- */
+  app.post('/api/diagnostics', requireWorkshop, async (req, res) => {
+    const b = req.body || {};
+    const measured_psi = num(b.measured_psi);
+    if (measured_psi === null || measured_psi <= 0) return res.status(400).json({ error: 'Presión medida inválida' });
+    const id = await db.insertReturningId(`INSERT INTO diagnostics
+      (workshop_id, vehicle_id, brand, model, year, measured_psi, spec_min, spec_max, verdict, reasons, notes)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      [req.workshopId, toInt(b.vehicle_id, 1, 1e9), str(b.brand, 60) || null, str(b.model, 80) || null,
+       toInt(b.year, 1900, 2100), measured_psi, num(b.spec_min), num(b.spec_max),
+       str(b.verdict, 20) || 'NO_SPEC', b.reasons ? JSON.stringify(b.reasons) : null, str(b.notes, 500) || null]);
+    res.status(201).json({ id });
+  });
+
+  app.get('/api/diagnostics', requireWorkshop, async (req, res) => {
+    const rows = await db.all('SELECT * FROM diagnostics WHERE workshop_id = ? ORDER BY id DESC LIMIT 200', req.workshopId);
+    res.set('Cache-Control', 'no-store').json(rows);
+  });
+
+  /* ---- Export del catálogo global (marcas/modelos/PSI) ---- */
+  app.get('/api/catalog/export', async (req, res) => {
+    const rows = await db.all(`SELECT b.name AS brand, v.model, v.year_from, v.year_to, v.engine,
+      v.rail_pressure_psi_min, v.rail_pressure_psi_max FROM vehicles v JOIN brands b ON b.id = v.brand_id ORDER BY b.name, v.model`);
+    if (req.query.format === 'csv') {
+      const head = ['Marca', 'Modelo', 'Año desde', 'Año hasta', 'Motor', 'PSI min', 'PSI max'];
+      const esc = (v) => `"${String(v ?? '').replace(/"/g, '""')}"`;
+      const csv = [head.join(','), ...rows.map(r => [r.brand, r.model, r.year_from, r.year_to, r.engine, r.rail_pressure_psi_min, r.rail_pressure_psi_max].map(esc).join(','))].join('\n');
+      res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+      res.setHeader('Content-Disposition', 'attachment; filename="catalogo-vehiculos.csv"');
+      return res.send(csv);
+    }
+    res.json(rows);
+  });
+
+  /* ---- Respaldo del taller (export/import JSON) ---- */
+  app.get('/api/backup', requireWorkshop, async (req, res) => {
+    const ws = req.workshopId;
+    const [inventory, moves, clients, vehicles, orders, orderItems, orderPhotos, documents, docItems, diagnostics, notes, cash] = await Promise.all([
+      db.all('SELECT * FROM inventory_items WHERE workshop_id=?', ws),
+      db.all('SELECT * FROM inventory_moves WHERE workshop_id=?', ws),
+      db.all('SELECT * FROM clients WHERE workshop_id=?', ws),
+      db.all('SELECT * FROM client_vehicles WHERE workshop_id=?', ws),
+      db.all('SELECT * FROM work_orders WHERE workshop_id=?', ws),
+      db.all('SELECT * FROM work_order_items WHERE workshop_id=?', ws),
+      db.all('SELECT * FROM work_order_photos WHERE workshop_id=?', ws),
+      db.all('SELECT * FROM documents WHERE workshop_id=?', ws),
+      db.all('SELECT * FROM document_items WHERE workshop_id=?', ws),
+      db.all('SELECT * FROM diagnostics WHERE workshop_id=?', ws),
+      db.all('SELECT * FROM workshop_notes WHERE workshop_id=?', ws),
+      db.all('SELECT * FROM cash_moves WHERE workshop_id=?', ws),
+    ]);
+    res.set('Cache-Control', 'no-store').json({ exported_at: new Date().toISOString(), data: {
+      inventory, moves, clients, vehicles, orders, orderItems, orderPhotos, documents, docItems, diagnostics, notes, cash
+    } });
+  });
+
+  // Import de respaldo: reemplaza los datos del taller (transaccional)
+  app.post('/api/backup/import', requireWorkshop, async (req, res) => {
+    const data = req.body?.data;
+    if (!data || typeof data !== 'object') return res.status(400).json({ error: 'Respaldo inválido' });
+    const ws = req.workshopId;
+    const T = ['inventory', 'moves', 'clients', 'vehicles', 'orders', 'orderItems', 'orderPhotos', 'documents', 'docItems', 'diagnostics', 'notes', 'cash'];
+    await db.exec('BEGIN'); try {
+      for (const t of T) await db.run(`DELETE FROM ${t} WHERE workshop_id=?`, [ws]);
+      const ins = async (t, cols, row) => db.insertReturningId(
+        `INSERT INTO ${t} (workshop_id, ${cols.join(', ')}) VALUES (${['?', ...cols.map(() => '?')].join(', ')})`,
+        [ws, ...cols.map(c => row[c] ?? null)]);
+      const mapOrderId = {}, mapItemId = {}, mapClientId = {}, mapVehicleId = {}, mapDocId = {};
+      for (const r of data.inventory || []) mapItemId[r.id] = await ins('inventory_items', ['name','sku','category','qty','min_qty','unit_price','notes'], r);
+      for (const r of data.moves || []) await ins('inventory_moves', ['item_id','delta','kind','order_id','note'], { ...r, item_id: mapItemId[r.item_id] });
+      for (const r of data.clients || []) mapClientId[r.id] = await ins('clients', ['name','phone','email','address','city','notes'], r);
+      for (const r of data.vehicles || []) mapVehicleId[r.id] = await ins('client_vehicles', ['client_id','brand','model','year','plate','vin','notes'], { ...r, client_id: mapClientId[r.client_id] });
+      for (const r of data.orders || []) mapOrderId[r.id] = await ins('work_orders', ['client_id','vehicle_id','type','title','descr','status','total','closed_at'], { ...r, client_id: mapClientId[r.client_id], vehicle_id: mapVehicleId[r.vehicle_id] });
+      for (const r of data.orderItems || []) await ins('work_order_items', ['order_id','item_id','descr','qty','unit_price','line_total'], { ...r, order_id: mapOrderId[r.order_id], item_id: mapItemId[r.item_id] });
+      for (const r of data.orderPhotos || []) await ins('work_order_photos', ['order_id','photo','caption'], { ...r, order_id: mapOrderId[r.order_id] });
+      for (const r of data.documents || []) mapDocId[r.id] = await ins('documents', ['kind','number','client_id','order_id','status','total'], { ...r, client_id: mapClientId[r.client_id], order_id: mapOrderId[r.order_id] });
+      for (const r of data.docItems || []) await ins('document_items', ['document_id','item_id','descr','qty','unit_price','line_total'], { ...r, document_id: mapDocId[r.document_id], item_id: mapItemId[r.item_id] });
+      for (const r of data.diagnostics || []) await ins('diagnostics', ['vehicle_id','brand','model','year','measured_psi','spec_min','spec_max','verdict','reasons','notes'], r);
+      for (const r of data.notes || []) await ins('workshop_notes', ['text','vehicle_ref'], r);
+      for (const r of data.cash || []) await ins('cash_moves', ['concept','amount','type'], r);
+      await db.exec('COMMIT');
+    } catch (e) { await db.exec('ROLLBACK'); throw e; }
+    res.json({ ok: true });
+  });
+
+  /* ---- Notas del taller (rápidas) ---- */
+  app.get('/api/notes', requireWorkshop, async (req, res) => {
+    const rows = await db.all('SELECT * FROM workshop_notes WHERE workshop_id = ? ORDER BY id DESC LIMIT 200', req.workshopId);
+    res.set('Cache-Control', 'no-store').json(rows);
+  });
+
+  app.post('/api/notes', requireWorkshop, async (req, res) => {
+    const text = str(req.body?.text, 1000);
+    if (!text) return res.status(400).json({ error: 'Texto requerido' });
+    const id = await db.insertReturningId('INSERT INTO workshop_notes (workshop_id, text, vehicle_ref) VALUES (?, ?, ?)',
+      [req.workshopId, text, str(req.body?.vehicle_ref, 80) || null]);
+    res.status(201).json({ id });
+  });
+
+  app.delete('/api/notes/:id', requireWorkshop, async (req, res) => {
+    const id = toInt(req.params.id, 1, 1e9);
+    const info = await db.run('DELETE FROM workshop_notes WHERE id=? AND workshop_id=?', [id, req.workshopId]);
+    if (!info.changes) return res.status(404).json({ error: 'No encontrado' });
+    res.json({ ok: true });
+  });
+
+  /* ---- Caja ---- */
+  app.get('/api/cash', requireWorkshop, async (req, res) => {
+    const rows = await db.all('SELECT * FROM cash_moves WHERE workshop_id = ? ORDER BY id DESC LIMIT 500', req.workshopId);
+    res.set('Cache-Control', 'no-store').json(rows);
+  });
+
+  app.post('/api/cash', requireWorkshop, async (req, res) => {
+    const b = req.body || {};
+    const concept = str(b.concept, 200);
+    const amount = num(b.amount);
+    const type = b.type === 'egreso' ? 'egreso' : 'ingreso';
+    if (!concept || amount === null || amount <= 0) return res.status(400).json({ error: 'Concepto y monto válido requeridos' });
+    const id = await db.insertReturningId('INSERT INTO cash_moves (workshop_id, concept, amount, type) VALUES (?, ?, ?, ?)',
+      [req.workshopId, concept, amount, type]);
+    res.status(201).json({ id });
+  });
+
+  app.delete('/api/cash/:id', requireWorkshop, async (req, res) => {
+    const id = toInt(req.params.id, 1, 1e9);
+    const info = await db.run('DELETE FROM cash_moves WHERE id=? AND workshop_id=?', [id, req.workshopId]);
+    if (!info.changes) return res.status(404).json({ error: 'No encontrado' });
+    res.json({ ok: true });
+  });
+
   app.use('/api', (req, res) => res.status(404).json({ error: 'No encontrado' }));
 
   app.use((err, req, res, next) => {
@@ -1428,6 +2218,12 @@ ${dbContext}`;
 if (require.main === module) {
   (async () => {
     try {
+      const { db: bootDb } = require('./db');
+      // Esquema completo (catálogo + negocio): CREATE TABLE IF NOT EXISTS idempotente.
+      // El adaptador ya ejecuta statement por statement cuando el backend es Turso.
+      const schema = fs.readFileSync(path.join(__dirname, 'schema.sql'), 'utf8');
+      await bootDb.exec(schema);
+
       const statsDb = defaultStatsDb;
       await statsDb.exec(`
         CREATE TABLE IF NOT EXISTS visit_days (

@@ -114,9 +114,9 @@
   const ZONES = ['Centro', 'Norte', 'Sur', 'Este', 'Oeste', 'Zona Industrial'];
 
   /* ================================================================
-     HOME — dashboard con fondo de motor
+     HOME — dashboard con menú central + explicación del sitio
      ================================================================ */
-  const Home = ({ onOpen }) => {
+  const Home = ({ onOpen, user, onLogout }) => {
     const [q, setQ] = useState('');
     const apps = [
       // Consulta rápida
@@ -128,17 +128,19 @@
       { id: 'convert', t: 'Conversor de Unidades', d: 'PSI↔Bar, Nm↔lb-ft, mm↔in', i: 'Repeat', g: 'consulta', act: () => onOpen('convert') },
       { id: 'vin', t: 'Decodificador VIN', d: 'Chasis: año y fabricante', i: 'ScanSearch', g: 'consulta', act: () => onOpen('vin') },
       // Diagnóstico
+      { id: 'quickdiag', t: 'Diagnóstico Rápido de PSI', d: 'Medida → BIEN/MAL con causas', i: 'Gauge', g: 'diag', act: () => onOpen('quickdiag') },
       { id: 'diag', t: 'Diagnóstico por Síntomas', d: 'Causas y pruebas rápidas', i: 'Stethoscope', g: 'diag', act: () => onOpen('diag') },
       { id: 'calc', t: 'Calculadoras Técnicas', d: 'Caudal, presión y eléctrico', i: 'Gauge', g: 'diag', act: () => onOpen('calc') },
       { id: 'aid', t: 'Identificador con IA', d: 'Describe la pieza y te la identifico', i: 'Assistant', g: 'diag', act: () => onOpen('aid') },
       { id: 'pressure', t: 'Registro de Presión', d: 'Historial PSI/Bar por vehículo', i: 'Pump', g: 'diag', act: () => onOpen('pressure') },
       { id: 'regulator', t: 'Prueba de Regulador', d: 'Pasos para validar regulador', i: 'Gauge', g: 'diag', act: () => onOpen('regulator') },
-      // Taller
-      { id: 'orders', t: 'Órdenes de Trabajo', d: 'Pendiente, en proceso, listo', i: 'ClipboardCheck', g: 'taller', act: () => onOpen('orders') },
-      { id: 'inventory', t: 'Inventario / Stock', d: 'Control con alertas de mínimo', i: 'Box', g: 'taller', act: () => onOpen('inventory') },
-      { id: 'clients', t: 'Clientes', d: 'Expedientes y vehículos', i: 'Car', g: 'taller', act: () => onOpen('clients') },
-      { id: 'notes', t: 'Notas del Mecánico', d: 'Notas rápidas por vehículo', i: 'BookOpen', g: 'taller', act: () => onOpen('notes') },
-      { id: 'cash', t: 'Cierre de Caja', d: 'Ingresos y egresos del día', i: 'Calculator', g: 'taller', act: () => onOpen('cash') },
+      // Taller (requiere cuenta)
+      { id: 'orders', t: 'Órdenes de Trabajo', d: 'Servicios, garantías y promociones', i: 'ClipboardCheck', g: 'taller', act: () => onOpen('orders'), need: true },
+      { id: 'inventory', t: 'Inventario / Stock', d: 'Control con alertas de mínimo', i: 'Box', g: 'taller', act: () => onOpen('inventory'), need: true },
+      { id: 'clients', t: 'Clientes', d: 'Expedientes y vehículos', i: 'Car', g: 'taller', act: () => onOpen('clients'), need: true },
+      { id: 'documents', t: 'Notas de Entrega / Presupuestos', d: 'Genera e imprime documentos', i: 'FileText', g: 'taller', act: () => onOpen('documents'), need: true },
+      { id: 'notes', t: 'Notas del Mecánico', d: 'Notas rápidas por vehículo', i: 'BookOpen', g: 'taller', act: () => onOpen('notes'), need: true },
+      { id: 'cash', t: 'Cierre de Caja', d: 'Ingresos y egresos del día', i: 'Calculator', g: 'taller', act: () => onOpen('cash'), need: true },
       // Comunidad y mercado
       { id: 'forum', t: 'Foro Técnico', d: 'Preguntas y respuestas', i: 'MessagesSquare', g: 'comunidad', act: () => onOpen('forum') },
       { id: 'connect', t: 'Conectar Cliente ↔ Mecánico', d: 'Asistencia cerca de tu zona', i: 'MapPin', g: 'comunidad', act: () => onOpen('connect') },
@@ -149,13 +151,19 @@
       { id: 'timing', t: 'Sincronización / Kit de Tiempo', d: 'Marcas por motor', i: 'History', g: 'aprende', act: () => onOpen('timing') },
     ];
     const groups = [
-      ['consulta', 'Consulta Rápida'],
-      ['diag', 'Diagnóstico'],
-      ['taller', 'Taller e Inventario'],
-      ['comunidad', 'Comunidad y Mercado'],
-      ['aprende', 'Aprendizaje'],
+      ['consulta', 'Consulta Rápida', 'Herramientas de consulta técnica: presiones de riel, códigos OBD-II, torques, bujías, conversores y decodificador VIN.'],
+      ['diag', 'Diagnóstico', 'Diagnóstico rápido de PSI con veredicto, prueba de regulador, calculadoras técnicas, registro de presión y asistente con IA.'],
+      ['taller', 'Taller y Gestión', 'La gestión del negocio: inventario, órdenes de trabajo con evidencia, cartera de clientes, notas de entrega y presupuestos. Requiere cuenta.'],
+      ['comunidad', 'Comunidad y Mercado', 'Conecta clientes y mecánicos por ubicación y oferta, participa en el foro técnico y publica vehículos.'],
+      ['aprende', 'Aprendizaje', 'Guías paso a paso, glosario técnico y marcas de sincronización para el taller.'],
     ];
     const filtered = apps.filter(a => !q || (a.t + ' ' + a.d).toLowerCase().includes(q.toLowerCase()));
+    const lock = (a) => a.need && !user;
+    const card = (a) => html`<button type="button" class="micro-card" onClick=${a.act} key=${a.id}>
+        <span class="micro-card-icon"><${Ic} n=${a.i} s=${22} /></span>
+        <span class="micro-card-title">${a.t}${lock(a) ? html` <em style=${{ fontSize: '9px', color: 'var(--amber)', fontStyle: 'normal' }}>🔒</em>` : ''}</span>
+        <span class="micro-card-desc">${a.d}</span>
+      </button>`;
 
     return html`
       <div class="home">
@@ -163,6 +171,7 @@
           <img class="logo-lockup on-dark" src="/brand/logo-dark.png" width="760" height="205" alt="FuelTech Master" />
           <img class="logo-lockup on-light" src="/brand/logo-light.png" width="760" height="193" alt="" />
           <p class="home-tagline">El taller en tu bolsillo — herramientas, diagnóstico y gestión</p>
+          ${user && html`<p class="home-user muted" style=${{ fontSize: '11px', letterSpacing: '1px' }}>👤 ${user.name} · ${user.email} <button type="button" class="link-btn" onClick=${onLogout} style=${{ marginLeft: '6px' }}>salir</button></p>`}
           <div class="home-search">
             <input type="search" class="styled-input" placeholder="Buscar app, herramienta, DTC, término…" value=${q} onChange=${e => setQ(e.target.value)} />
             ${q && html`<button type="button" class="home-search-clear" onClick=${() => setQ('')} aria-label="Limpiar">✕</button>`}
@@ -170,22 +179,20 @@
         </header>
         <div class="home-groups">
           ${q ? html`<section class="home-group"><div class="home-group-grid">${filtered.map(a => card(a))}</div>${filtered.length === 0 && html`<div class="empty">Sin resultados para “${q}”</div>`}</section>`
-            : groups.map(([gid, glabel]) => html`
+            : groups.map(([gid, glabel, gdesc]) => html`
               <section class="home-group" key=${gid}>
                 <h2 class="home-group-title">${glabel}</h2>
                 <div class="home-group-grid">${apps.filter(a => a.g === gid).map(a => card(a))}</div>
+                <p class="home-group-desc">${gdesc}</p>
               </section>`)}
         </div>
+        <section class="home-about panel" style=${{ maxWidth: '1200px', margin: '0 auto 20px', padding: '20px' }}>
+          <h2 class="home-about-title">¿Qué es FuelTech Master?</h2>
+          <p>FuelTech Master es una plataforma para mecánicos de Latinoamérica. Combina un <strong>catálogo técnico</strong> de presión de riel (PSI/Bar), módulos y pilas de gasolina para 140+ vehículos, con herramientas de <strong>diagnóstico</strong> (veredicto rápido de PSI, DTC, torques, calculadoras), la <strong>gestión completa de tu taller</strong> (inventario, órdenes de trabajo con evidencia, cartera de clientes, notas de entrega y presupuestos), y una <strong>comunidad</strong> que conecta clientes y mecánicos por ubicación y oferta.</p>
+          <p style=${{ marginTop: '8px' }}>Tus datos de negocio se guardan de forma segura en la nube con tu cuenta de mecánico, y puedes exportar respaldos locales cuando quieras.</p>
+        </section>
         <footer class="home-footer">FuelTech Master · Herramientas para el mecánico profesional</footer>
       </div>`;
-
-    function card(a) {
-      return html`<button type="button" class="micro-card" onClick=${a.act} key=${a.id}>
-        <span class="micro-card-icon"><${Ic} n=${a.i} s=${22} /></span>
-        <span class="micro-card-title">${a.t}</span>
-        <span class="micro-card-desc">${a.d}</span>
-      </button>`;
-    }
   };
 
   /* ================================================================
@@ -311,18 +318,20 @@
 
   /* ---- 11. Registro de presión ---- */
   const PressureApp = ({ onBack }) => {
-    const KEY = 'ft_pressure_log';
-    const [rows, setRows] = useState(() => ls.get(KEY, []));
+    const [rows, api] = useApi('/api/diagnostics');
     const [psi, setPsi] = useState('');
     const [veh, setVeh] = useState('');
-    const add = () => {
+    const add = async () => {
       const n = parseFloat(psi);
       if (isNaN(n) || n <= 0) return;
-      const next = [{ psi: n, bar: +(n * 0.0689476).toFixed(2), veh: veh.trim() || 'General', ts: Date.now() }, ...rows].slice(0, 50);
-      setRows(next); ls.set(KEY, next); setPsi(''); setVeh('');
+      try {
+        await apiFetch('/api/diagnostics', { method: 'POST', body: JSON.stringify({ measured_psi: n, brand: '', model: veh.trim() || null, verdict: 'OK' }) });
+        setPsi(''); setVeh(''); api.load();
+      } catch (e) { alert(e.message); }
     };
-    const avg = rows.length ? rows.reduce((a, r) => a + r.psi, 0) / rows.length : 0;
+    const avg = rows.length ? rows.reduce((a, r) => a + Number(r.measured_psi), 0) / rows.length : 0;
     return html`<${MicroShell} title="Registro de Presión de Combustible" icon="Pump" onBack=${onBack}>
+      <div class="alert blue" style=${{ marginBottom: '10px' }}><span>Para un diagnóstico completo con veredicto BIEN/MAL usa el <strong>Diagnóstico Rápido de PSI</strong> desde el menú.</span></div>
       <div class="pres-form">
         <input type="number" class="styled-input" placeholder="Presión (PSI)" value=${psi} onChange=${e => setPsi(e.target.value)} />
         <input type="text" class="styled-input" placeholder="Vehículo (opcional)" value=${veh} onChange=${e => setVeh(e.target.value)} />
@@ -330,12 +339,12 @@
       </div>
       ${rows.length > 0 && html`<div class="pres-stats"><span>Promedio: <strong>${avg.toFixed(1)} PSI</strong> (${(avg * 0.0689476).toFixed(1)} bar)</span><span>${rows.length} registros</span></div>`}
       <div class="pres-list">
-        ${rows.map((r, i) => html`<div class="pres-item" key=${i}>
-          <span class="pres-psi">${r.psi} PSI <em>(${r.bar} bar)</em></span>
-          <span class="pres-veh">${r.veh}</span>
-          <span class="pres-ts">${new Date(r.ts).toLocaleString('es')}</span>
+        ${rows.map(r => html`<div class="pres-item" key=${r.id}>
+          <span class="pres-psi">${r.measured_psi} PSI <em>(${(Number(r.measured_psi) * 0.0689476).toFixed(2)} bar)</em></span>
+          <span class="pres-veh">${r.model || r.brand || 'General'}</span>
+          <span class="pres-ts">${new Date(r.created_at).toLocaleString('es')}</span>
         </div>`)}
-        ${rows.length === 0 && html`<div class="empty">Aún sin registros. Mide la presión en el riel y anótala aquí.</div>`}
+        ${rows.length === 0 && !api.loading && html`<div class="empty">Aún sin registros. Mide la presión en el riel y anótala aquí.</div>`}
       </div>
     </${MicroShell}>`;
   };
@@ -382,105 +391,339 @@
     return [d, upd];
   }
 
+  /* ================================================================
+     API backend (datos de negocio persistentes)
+     ================================================================ */
+  const apiFetch = async (path, opts = {}) => {
+    const res = await fetch(path, {
+      credentials: 'same-origin',
+      headers: opts.body ? { 'Content-Type': 'application/json' } : {},
+      ...opts
+    });
+    const ct = res.headers.get('content-type') || '';
+    const body = ct.includes('json') ? await res.json() : await res.text();
+    if (!res.ok) throw new Error(body?.error || body || `Error ${res.status}`);
+    return body;
+  };
+
+  // Hook para listar del backend y refrescar
+  const useApi = (path, seed = []) => {
+    const [data, setData] = useState(seed);
+    const [loading, setLoading] = useState(true);
+    const [err, setErr] = useState('');
+    const load = () => {
+      apiFetch(path).then(setData).catch(e => setErr(e.message)).finally(() => setLoading(false));
+    };
+    useEffect(() => { load(); /* eslint-disable-next-line */ }, [path]);
+    return [data, { load, setData, loading, err }];
+  };
+
+  const downloadBlob = (filename, text, mime = 'text/csv;charset=utf-8') => {
+    const blob = new Blob([text], { type: mime });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url; a.download = filename;
+    document.body.appendChild(a); a.click(); a.remove();
+    URL.revokeObjectURL(url);
+  };
+
   /* ---- 13. Órdenes de trabajo ---- */
+  const ORDER_TYPES = [['reparacion', 'Reparación'], ['servicio', 'Servicio'], ['garantia', 'Garantía'], ['promocion', 'Promoción'], ['otro', 'Otro']];
+  const ORDER_STATUS = ['Pendiente', 'En proceso', 'Listo', 'Entregado', 'Cancelado'];
   const OrdersApp = ({ onBack }) => {
-    const [orders, setOrders] = useStore('ft_orders', []);
+    const [orders, api] = useApi('/api/orders');
+    const [clients, clientsApi] = useApi('/api/clients');
+    const [inventory, invApi] = useApi('/api/inventory');
+    const [openId, setOpenId] = useState(null);
     const [show, setShow] = useState(false);
-    const [f, setF] = useState({ client: '', veh: '', desc: '', status: 'Pendiente' });
-    const save = () => { if (!f.client.trim() || !f.desc.trim()) return; setOrders(p => [{ ...f, id: uid(), ts: Date.now(), client: f.client.trim(), veh: f.veh.trim(), desc: f.desc.trim() }, ...p]); setF({ client: '', veh: '', desc: '', status: 'Pendiente' }); setShow(false); };
-    const setStatus = (id, st) => setOrders(p => p.map(o => o.id === id ? { ...o, status: st } : o));
-    const del = (id) => setOrders(p => p.filter(o => o.id !== id));
+    const [f, setF] = useState({ client_id: '', vehicle_id: '', type: 'reparacion', title: '', descr: '' });
+    const [newItem, setNewItem] = useState({ item_id: '', descr: '', qty: '1', unit_price: '' });
+    const save = async () => {
+      if (!f.title.trim()) return;
+      try {
+        await apiFetch('/api/orders', { method: 'POST', body: JSON.stringify(f) });
+        setF({ client_id: '', vehicle_id: '', type: 'reparacion', title: '', descr: '' }); setShow(false);
+        api.load(); clientsApi.load();
+      } catch (e) { alert(e.message); }
+    };
+    const setStatus = async (id, st) => {
+      try { await apiFetch(`/api/orders/${id}/status`, { method: 'POST', body: JSON.stringify({ status: st }) }); api.load(); } catch (e) { alert(e.message); }
+    };
+    const del = async (id) => {
+      if (!confirm('¿Eliminar esta orden?')) return;
+      try { await apiFetch(`/api/orders/${id}`, { method: 'DELETE' }); api.load(); } catch (e) { alert(e.message); }
+    };
+    const addItem = async (oid) => {
+      if (!newItem.descr.trim() || !newItem.qty) return;
+      const inv = inventory.find(i => i.id === Number(newItem.item_id));
+      try {
+        await apiFetch(`/api/orders/${oid}/items`, { method: 'POST', body: JSON.stringify({ ...newItem, unit_price: newItem.unit_price || inv?.unit_price || 0 }) });
+        setNewItem({ item_id: '', descr: '', qty: '1', unit_price: '' }); api.load(); invApi.load();
+      } catch (e) { alert(e.message); }
+    };
+    const delItem = async (oid, iid) => {
+      try { await apiFetch(`/api/orders/${oid}/items/${iid}`, { method: 'DELETE' }); api.load(); invApi.load(); } catch (e) { alert(e.message); }
+    };
+    const makeDoc = async (oid, kind) => {
+      const order = orders.find(o => o.id === oid);
+      if (!order) return;
+      try {
+        const detail = await apiFetch(`/api/orders/${oid}`);
+        const res = await apiFetch('/api/documents', { method: 'POST', body: JSON.stringify({ kind, client_id: order.client_id, order_id: oid, items: detail.items.map(i => ({ descr: i.descr, qty: i.qty, unit_price: i.unit_price })) }) });
+        window.open(`/api/documents/${res.id}/print`, '_blank');
+      } catch (e) { alert(e.message); }
+    };
     const counts = { Pendiente: orders.filter(o => o.status === 'Pendiente').length, 'En proceso': orders.filter(o => o.status === 'En proceso').length, Listo: orders.filter(o => o.status === 'Listo').length };
+    const clientOpts = (sel) => html`<select class="styled-input" value=${sel} onChange=${e => { const cid = e.target.value; setF({ ...f, client_id: cid, vehicle_id: '' }); }}>
+      <option value="">Cliente…</option>${clients.map(c => html`<option key=${c.id} value=${c.id}>${c.name}</option>`)}
+    </select>`;
     return html`<${MicroShell} title="Órdenes de Trabajo" icon="ClipboardCheck" onBack=${onBack}>
       <div class="order-stats">${[['Pendiente', 'var(--amber)'], ['En proceso', 'var(--accent)'], ['Listo', 'var(--text)']].map(([s, c]) => html`<span style=${{ color: c }}>${s}: <strong>${counts[s]}</strong></span>`)}</div>
+      ${api.err && html`<div class="alert"><span>${api.err}</span></div>`}
       <button type="button" class="tool-add-btn" style=${{ margin: '12px 0' }} onClick=${() => setShow(!show)}>${show ? 'Cancelar' : '+ Nueva orden'}</button>
       ${show && html`<div class="order-form panel" style=${{ padding: '14px', marginBottom: '12px' }}>
-        <div class="grid2"><input type="text" class="styled-input" placeholder="Cliente" value=${f.client} onChange=${e => setF({ ...f, client: e.target.value })} />
-        <input type="text" class="styled-input" placeholder="Vehículo / placa" value=${f.veh} onChange=${e => setF({ ...f, veh: e.target.value })} /></div>
-        <textarea class="styled-input" style=${{ marginTop: '8px' }} rows="3" placeholder="Descripción del trabajo" value=${f.desc} onChange=${e => setF({ ...f, desc: e.target.value })}></textarea>
-        <select class="styled-input" style=${{ marginTop: '8px' }} value=${f.status} onChange=${e => setF({ ...f, status: e.target.value })}>
-          <option>Pendiente</option><option>En proceso</option><option>Listo</option>
-        </select>
-        <button type="button" class="tool-add-btn" style=${{ marginTop: '10px' }} onClick=${save} disabled=${!f.client.trim() || !f.desc.trim()}>Guardar orden</button>
+        <div class="grid2">
+          ${clientOpts(f.client_id)}
+          <select class="styled-input" value=${f.type} onChange=${e => setF({ ...f, type: e.target.value })}>
+            ${ORDER_TYPES.map(([v, l]) => html`<option key=${v} value=${v}>${l}</option>`)}
+          </select>
+        </div>
+        ${f.client_id && html`<div style=${{ marginTop: '8px' }}>${(() => { const vehs = clients.find(c => c.id === Number(f.client_id))?.vehicles || []; return html`<select class="styled-input" value=${f.vehicle_id} onChange=${e => setF({ ...f, vehicle_id: e.target.value })}>
+          <option value="">Vehículo (opcional)…</option>${vehs.map(v => html`<option key=${v.id} value=${v.id}>${v.brand || ''} ${v.model || ''} ${v.plate ? '· ' + v.plate : ''}</option>`)}
+        </select>`; })()}</div>`}
+        <input type="text" class="styled-input" style=${{ marginTop: '8px' }} placeholder="Título del trabajo (ej. Cambio de bomba)" value=${f.title} onChange=${e => setF({ ...f, title: e.target.value })} />
+        <textarea class="styled-input" style=${{ marginTop: '8px' }} rows="3" placeholder="Descripción" value=${f.descr} onChange=${e => setF({ ...f, descr: e.target.value })}></textarea>
+        <button type="button" class="tool-add-btn" style=${{ marginTop: '10px' }} onClick=${save} disabled=${!f.title.trim()}>Guardar orden</button>
       </div>`}
       <div class="order-list">
         ${orders.map(o => html`<div class="order-item" key=${o.id}>
           <div class="order-head">
-            <strong>${o.client}</strong> ${o.veh && html`<span class="muted">· ${o.veh}</span>`}
-            <span class="order-date">${new Date(o.ts).toLocaleString('es', { day: '2-digit', month: 'short' })}</span>
+            <button type="button" class="link-btn" style=${{ font: '700 13px var(--font)', color: 'var(--text)' }} onClick=${() => setOpenId(openId === o.id ? null : o.id)}>${o.title}</button>
+            ${o.client_name && html`<span class="muted">· ${o.client_name}</span>`}
+            <span class="order-date">${new Date(o.created_at).toLocaleDateString('es')}</span>
           </div>
-          <p class="order-desc">${o.desc}</p>
+          <div class="order-desc" style=${{ fontSize: '12px', color: 'var(--text-alt)' }}>${[o.type, o.vehicle_model].filter(Boolean).join(' · ') || o.type}</div>
+          ${openId === o.id && html`<div style=${{ marginTop: '10px', borderTop: '1px solid var(--border)', paddingTop: '10px' }}>
+            ${o.descr && html`<p class="order-desc">${o.descr}</p>`}
+            <div class="order-items" style=${{ display: 'flex', flexDirection: 'column', gap: '6px', margin: '8px 0' }}>
+              ${o.items?.map(i => html`<div key=${i.id} class="order-item-line" style=${{ display: 'flex', justifyContent: 'space-between', gap: '8px', fontSize: '12px' }}>
+                <span>${i.descr} × ${i.qty}</span><span>$${Number(i.line_total).toFixed(2)} <button type="button" class="link-btn" onClick=${() => delItem(o.id, i.id)}>✕</button></span>
+              </div>`)}
+            </div>
+            <div class="grid2" style=${{ gap: '6px' }}>
+              <select class="styled-input" value=${newItem.item_id} onChange=${e => { const inv = inventory.find(x => x.id === Number(e.target.value)); setNewItem({ ...newItem, item_id: e.target.value, descr: inv?.name || '', unit_price: inv?.unit_price || '' }); }}>
+                <option value="">Pieza del inventario…</option>${inventory.map(i => html`<option key=${i.id} value=${i.id}>${i.name} (stock ${i.qty})</option>`)}
+              </select>
+              <input type="number" class="styled-input" placeholder="Cant." value=${newItem.qty} onChange=${e => setNewItem({ ...newItem, qty: e.target.value })} />
+            </div>
+            <div style=${{ marginTop: '6px' }}>
+              <input type="text" class="styled-input" placeholder="Descripción del item" value=${newItem.descr} onChange=${e => setNewItem({ ...newItem, descr: e.target.value })} />
+            </div>
+            <button type="button" class="tool-add-btn" style=${{ marginTop: '6px' }} onClick=${() => addItem(o.id)} disabled=${!newItem.descr.trim()}>Agregar item</button>
+            <div style=${{ marginTop: '8px', display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+              <button type="button" class="tool-add-btn" onClick=${() => makeDoc(o.id, 'entrega')}>📦 Nota de entrega</button>
+              <button type="button" class="tool-add-btn" onClick=${() => makeDoc(o.id, 'presupuesto')}>🧾 Presupuesto</button>
+            </div>
+          </div>`}
           <div class="order-foot">
             <select class="order-status st-${o.status.toLowerCase().replace(' ', '-')}" value=${o.status} onChange=${e => setStatus(o.id, e.target.value)}>
-              <option>Pendiente</option><option>En proceso</option><option>Listo</option>
+              ${ORDER_STATUS.map(s => html`<option key=${s}>${s}</option>`)}
             </select>
             <button type="button" class="link-btn" onClick=${() => del(o.id)}>eliminar</button>
           </div>
         </div>`)}
-        ${orders.length === 0 && html`<div class="empty">Sin órdenes. Crea la primera.</div>`}
+        ${orders.length === 0 && !api.loading && html`<div class="empty">Sin órdenes. Crea la primera.</div>`}
       </div>
     </${MicroShell}>`;
   };
 
   /* ---- 14. Inventario ---- */
   const InventoryApp = ({ onBack }) => {
-    const [items, setItems] = useStore('ft_inventory', []);
-    const [f, setF] = useState({ name: '', qty: '', min: '' });
-    const save = () => { if (!f.name.trim()) return; setItems(p => [...p, { id: uid(), name: f.name.trim(), qty: parseInt(f.qty) || 0, min: parseInt(f.min) || 0 }]); setF({ name: '', qty: '', min: '' }); };
-    const setQty = (id, q) => setItems(p => p.map(i => i.id === id ? { ...i, qty: Math.max(0, parseInt(q) || 0) } : i));
-    const del = (id) => setItems(p => p.filter(i => i.id !== id));
-    const low = items.filter(i => i.qty <= i.min);
+    const [items, api] = useApi('/api/inventory');
+    const [moves, movesApi] = useApi('/api/inventory/moves');
+    const [f, setF] = useState({ name: '', sku: '', category: '', qty: '', min: '', price: '', notes: '' });
+    const [editing, setEditing] = useState(null);
+    const [moveFor, setMoveFor] = useState(null);
+    const [move, setMove] = useState({ delta: '', kind: 'entrada', note: '' });
+    const reset = () => { setF({ name: '', sku: '', category: '', qty: '', min: '', price: '', notes: '' }); setEditing(null); };
+    const save = async () => {
+      if (!f.name.trim()) return;
+      const payload = { ...f, qty: f.qty || 0, min_qty: f.min, unit_price: f.price };
+      try {
+        if (editing) await apiFetch(`/api/inventory/${editing}`, { method: 'PUT', body: JSON.stringify(payload) });
+        else await apiFetch('/api/inventory', { method: 'POST', body: JSON.stringify(payload) });
+        reset(); api.load();
+      } catch (e) { alert(e.message); }
+    };
+    const edit = (i) => { setEditing(i.id); setF({ name: i.name, sku: i.sku || '', category: i.category || '', qty: i.qty, min: i.min_qty, price: i.unit_price, notes: i.notes || '' }); };
+    const del = async (id) => {
+      if (!confirm('¿Eliminar esta pieza del inventario?')) return;
+      try { await apiFetch(`/api/inventory/${id}`, { method: 'DELETE' }); api.load(); movesApi.load(); } catch (e) { alert(e.message); }
+    };
+    const applyMove = async () => {
+      const d = parseFloat(move.delta);
+      if (isNaN(d) || d === 0) return;
+      const delta = move.kind === 'salida' ? -Math.abs(d) : Math.abs(d);
+      try {
+        await apiFetch(`/api/inventory/${moveFor}/moves`, { method: 'POST', body: JSON.stringify({ delta, kind: move.kind, note: move.note }) });
+        setMove({ delta: '', kind: 'entrada', note: '' }); setMoveFor(null); api.load(); movesApi.load();
+      } catch (e) { alert(e.message); }
+    };
+    const exportCsv = async () => {
+      try { const csv = await apiFetch('/api/inventory/export?format=csv'); downloadBlob('inventario.csv', csv); } catch (e) { alert(e.message); }
+    };
+    const low = items.filter(i => i.qty <= i.min_qty);
     return html`<${MicroShell} title="Inventario / Stock" icon="Box" onBack=${onBack}>
       ${low.length > 0 && html`<div class="alert" style=${{ marginBottom: '12px' }}><strong style=${{ color: 'var(--amber)' }}>${low.length} pieza(s) bajo mínimo:</strong> ${low.map(i => i.name).join(', ')}</div>`}
-      <div class="inv-form">
+      ${api.err && html`<div class="alert"><span>${api.err}</span></div>`}
+      <div class="inv-form" style=${{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', gap: '8px' }}>
         <input type="text" class="styled-input" placeholder="Pieza (ej. Bomba BOSCH 69100)" value=${f.name} onChange=${e => setF({ ...f, name: e.target.value })} />
-        <input type="number" class="styled-input" placeholder="Cant." value=${f.qty} onChange=${e => setF({ ...f, qty: e.target.value })} />
+        <input type="text" class="styled-input" placeholder="SKU / ref." value=${f.sku} onChange=${e => setF({ ...f, sku: e.target.value })} />
+        <input type="text" class="styled-input" placeholder="Categoría" value=${f.category} onChange=${e => setF({ ...f, category: e.target.value })} />
+        ${!editing && html`<input type="number" class="styled-input" placeholder="Cant. inicial" value=${f.qty} onChange=${e => setF({ ...f, qty: e.target.value })} />`}
         <input type="number" class="styled-input" placeholder="Mín." value=${f.min} onChange=${e => setF({ ...f, min: e.target.value })} />
-        <button type="button" class="tool-add-btn" onClick=${save} disabled=${!f.name.trim()}>Agregar</button>
+        <input type="number" class="styled-input" placeholder="Precio $" value=${f.price} onChange=${e => setF({ ...f, price: e.target.value })} />
+        <input type="text" class="styled-input" placeholder="Notas" value=${f.notes} onChange=${e => setF({ ...f, notes: e.target.value })} />
+        <button type="button" class="tool-add-btn" onClick=${save} disabled=${!f.name.trim()}>${editing ? 'Guardar cambios' : 'Agregar'}</button>
+        ${editing && html`<button type="button" class="link-btn" onClick=${reset}>cancelar edición</button>`}
+      </div>
+      <div style=${{ display: 'flex', gap: '8px', margin: '10px 0' }}>
+        <button type="button" class="link-btn" onClick=${exportCsv}>⬇ Exportar CSV</button>
       </div>
       <div class="inv-list">
-        ${items.map(i => html`<div class="inv-item ${i.qty <= i.min ? 'low' : ''}" key=${i.id}>
-          <span class="inv-name">${i.name}</span>
-          <span class="inv-qty"><button type="button" class="inv-btn" onClick=${() => setQty(i.id, i.qty - 1)}>−</button><strong class=${i.qty <= i.min ? 'low' : ''}>${i.qty}</strong><button type="button" class="inv-btn" onClick=${() => setQty(i.id, i.qty + 1)}>+</button></span>
-          <span class="muted">mín ${i.min}</span>
+        ${items.map(i => html`<div class="inv-item ${i.qty <= i.min_qty ? 'low' : ''}" key=${i.id}>
+          <span class="inv-name">${i.name}${i.category ? html`<em class="muted" style=${{ display: 'block', fontSize: '10px' }}>${i.category}</em>` : ''}</span>
+          <span class="inv-qty"><button type="button" class="inv-btn" onClick=${async () => { try { await apiFetch(`/api/inventory/${i.id}/moves`, { method: 'POST', body: JSON.stringify({ delta: -1, kind: 'salida' }) }); api.load(); movesApi.load(); } catch (e) { alert(e.message); } }}>−</button><strong class=${i.qty <= i.min_qty ? 'low' : ''}>${i.qty}</strong><button type="button" class="inv-btn" onClick=${async () => { try { await apiFetch(`/api/inventory/${i.id}/moves`, { method: 'POST', body: JSON.stringify({ delta: 1, kind: 'entrada' }) }); api.load(); movesApi.load(); } catch (e) { alert(e.message); } }}>+</button></span>
+          <span class="muted">mín ${i.min_qty}${i.unit_price ? ' · $' + i.unit_price : ''}</span>
+          <button type="button" class="link-btn" onClick=${() => edit(i)}>editar</button>
           <button type="button" class="link-btn" onClick=${() => del(i.id)}>✕</button>
+          <button type="button" class="link-btn" onClick=${() => { setMoveFor(i.id); setMove({ delta: '', kind: 'entrada', note: '' }); }}>ajustar</button>
         </div>`)}
-        ${items.length === 0 && html`<div class="empty">Inventario vacío. Agrega piezas.</div>`}
+        ${items.length === 0 && !api.loading && html`<div class="empty">Inventario vacío. Agrega piezas.</div>`}
       </div>
+      ${moveFor && html`<div class="panel" style=${{ padding: '14px', marginTop: '12px' }}>
+        <h3 style=${{ fontSize: '12px', color: 'var(--accent)', textTransform: 'uppercase', letterSpacing: '1px', marginBottom: '8px' }}>Movimiento de inventario</h3>
+        <div class="grid2">
+          <select class="styled-input" value=${move.kind} onChange=${e => setMove({ ...move, kind: e.target.value })}>
+            <option value="entrada">Entrada (+)</option><option value="salida">Salida (−)</option><option value="ajuste">Ajuste</option>
+          </select>
+          <input type="number" class="styled-input" placeholder="Cantidad" value=${move.delta} onChange=${e => setMove({ ...move, delta: e.target.value })} />
+        </div>
+        <input type="text" class="styled-input" style=${{ marginTop: '8px' }} placeholder="Motivo (opcional)" value=${move.note} onChange=${e => setMove({ ...move, note: e.target.value })} />
+        <button type="button" class="tool-add-btn" style=${{ marginTop: '10px' }} onClick=${applyMove} disabled=${!move.delta}>Registrar movimiento</button>
+        <button type="button" class="link-btn" onClick=${() => setMoveFor(null)}>cancelar</button>
+      </div>`}
+      ${moves.length > 0 && html`<details style=${{ marginTop: '14px' }}><summary class="muted" style=${{ cursor: 'pointer', fontSize: '12px' }}>Historial de movimientos (${moves.length})</summary>
+        <div class="pres-list" style=${{ marginTop: '8px' }}>
+          ${moves.slice(0, 100).map(m => html`<div class="pres-item" key=${m.id}>
+            <span class=${'pres-psi ' + (m.delta > 0 ? '' : 'low')}>${m.delta > 0 ? '+' : ''}${m.delta}</span>
+            <span class="pres-veh">${m.item_name} · ${m.kind}</span>
+            <span class="pres-ts">${new Date(m.created_at).toLocaleString('es')}${m.note ? ' · ' + m.note : ''}</span>
+          </div>`)}
+        </div>
+      </details>`}
     </${MicroShell}>`;
   };
 
   /* ---- 15. Clientes ---- */
   const ClientsApp = ({ onBack }) => {
-    const [clients, setClients] = useStore('ft_clients', []);
-    const [f, setF] = useState({ name: '', phone: '', veh: '', plate: '' });
-    const save = () => { if (!f.name.trim()) return; setClients(p => [...p, { id: uid(), name: f.name.trim(), phone: f.phone.trim(), veh: f.veh.trim(), plate: f.plate.trim().toUpperCase() }]); setF({ name: '', phone: '', veh: '', plate: '' }); };
-    const del = (id) => setClients(p => p.filter(c => c.id !== id));
+    const [clients, api] = useApi('/api/clients');
+    const [f, setF] = useState({ name: '', phone: '', email: '', address: '', city: '', notes: '' });
+    const [editing, setEditing] = useState(null);
+    const [openId, setOpenId] = useState(null);
+    const [vehicles, setVehicles] = useState({});
+    const [vf, setVf] = useState({ brand: '', model: '', year: '', plate: '' });
+    const reset = () => { setF({ name: '', phone: '', email: '', address: '', city: '', notes: '' }); setEditing(null); };
+    const save = async () => {
+      if (!f.name.trim()) return;
+      try {
+        if (editing) await apiFetch(`/api/clients/${editing}`, { method: 'PUT', body: JSON.stringify(f) });
+        else await apiFetch('/api/clients', { method: 'POST', body: JSON.stringify(f) });
+        reset(); api.load();
+      } catch (e) { alert(e.message); }
+    };
+    const edit = (c) => { setEditing(c.id); setF({ name: c.name, phone: c.phone || '', email: c.email || '', address: c.address || '', city: c.city || '', notes: c.notes || '' }); };
+    const del = async (id) => {
+      if (!confirm('¿Eliminar este cliente?')) return;
+      try { await apiFetch(`/api/clients/${id}`, { method: 'DELETE' }); api.load(); } catch (e) { alert(e.message); }
+    };
+    const toggle = async (c) => {
+      setOpenId(openId === c.id ? null : c.id);
+      if (openId !== c.id) {
+        try { const rows = await apiFetch(`/api/clients/${c.id}/vehicles`); setVehicles(v => ({ ...v, [c.id]: rows })); } catch (e) { alert(e.message); }
+      }
+    };
+    const addVehicle = async (cid) => {
+      if (!vf.brand.trim() && !vf.model.trim()) return;
+      try {
+        await apiFetch(`/api/clients/${cid}/vehicles`, { method: 'POST', body: JSON.stringify(vf) });
+        setVf({ brand: '', model: '', year: '', plate: '' });
+        setVehicles(v => ({ ...v, [cid]: v[cid] ? [...v[cid]] : [] }));
+        const rows = await apiFetch(`/api/clients/${cid}/vehicles`);
+        setVehicles(v => ({ ...v, [cid]: rows }));
+      } catch (e) { alert(e.message); }
+    };
+    const delVehicle = async (cid, vid) => {
+      try {
+        await apiFetch(`/api/clients/vehicles/${vid}`, { method: 'DELETE' });
+        setVehicles(v => ({ ...v, [cid]: (v[cid] || []).filter(x => x.id !== vid) }));
+      } catch (e) { alert(e.message); }
+    };
     return html`<${MicroShell} title="Clientes" icon="Car" onBack=${onBack}>
-      <div class="cli-form grid2">
+      ${api.err && html`<div class="alert"><span>${api.err}</span></div>`}
+      <div class="cli-form" style=${{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))', gap: '8px' }}>
         <input type="text" class="styled-input" placeholder="Nombre" value=${f.name} onChange=${e => setF({ ...f, name: e.target.value })} />
         <input type="text" class="styled-input" placeholder="Teléfono" value=${f.phone} onChange=${e => setF({ ...f, phone: e.target.value })} />
-        <input type="text" class="styled-input" placeholder="Vehículo" value=${f.veh} onChange=${e => setF({ ...f, veh: e.target.value })} />
-        <input type="text" class="styled-input" placeholder="Placa" value=${f.plate} onChange=${e => setF({ ...f, plate: e.target.value })} />
+        <input type="text" class="styled-input" placeholder="Correo" value=${f.email} onChange=${e => setF({ ...f, email: e.target.value })} />
+        <input type="text" class="styled-input" placeholder="Dirección" value=${f.address} onChange=${e => setF({ ...f, address: e.target.value })} />
+        <input type="text" class="styled-input" placeholder="Ciudad" value=${f.city} onChange=${e => setF({ ...f, city: e.target.value })} />
+        <input type="text" class="styled-input" placeholder="Notas" value=${f.notes} onChange=${e => setF({ ...f, notes: e.target.value })} />
       </div>
-      <button type="button" class="tool-add-btn" style=${{ margin: '10px 0 14px' }} onClick=${save} disabled=${!f.name.trim()}>Agregar cliente</button>
+      <div style=${{ display: 'flex', gap: '10px', margin: '10px 0 14px', alignItems: 'center' }}>
+        <button type="button" class="tool-add-btn" onClick=${save} disabled=${!f.name.trim()}>${editing ? 'Guardar cambios' : 'Agregar cliente'}</button>
+        ${editing && html`<button type="button" class="link-btn" onClick=${reset}>cancelar</button>`}
+      </div>
       <div class="cli-list">
         ${clients.map(c => html`<div class="cli-item" key=${c.id}>
-          <div class="cli-head"><strong>${c.name}</strong> ${c.phone && html`<a href=${'tel:' + c.phone} class="link-btn">${c.phone}</a>`}<button type="button" class="link-btn" onClick=${() => del(c.id)}>✕</button></div>
-          <div class="muted">${[c.veh, c.plate].filter(Boolean).join(' · ') || 'Sin vehículo registrado'}</div>
+          <button type="button" class="link-btn" style=${{ font: '700 13px var(--font)', color: 'var(--text)' }} onClick=${() => toggle(c)}>${c.name}</button>
+          ${c.phone && html`<a href=${'tel:' + c.phone} class="link-btn">${c.phone}</a>`}
+          ${c.city && html`<span class="muted">· ${c.city}</span>`}
+          <button type="button" class="link-btn" onClick=${() => edit(c)}>editar</button>
+          <button type="button" class="link-btn" onClick=${() => del(c.id)}>✕</button>
+          ${openId === c.id && html`<div style=${{ marginTop: '10px', borderTop: '1px solid var(--border)', paddingTop: '10px', width: '100%' }}>
+            <strong class="muted" style=${{ fontSize: '10px', textTransform: 'uppercase', letterSpacing: '1px' }}>Vehículos</strong>
+            ${(vehicles[c.id] || []).map(v => html`<div key=${v.id} class="order-item-line" style=${{ display: 'flex', justifyContent: 'space-between', gap: '8px', fontSize: '12px', margin: '4px 0' }}>
+              <span>${[v.brand, v.model, v.year, v.plate].filter(Boolean).join(' · ')}</span>
+              <button type="button" class="link-btn" onClick=${() => delVehicle(c.id, v.id)}>✕</button>
+            </div>`)}
+            ${(vehicles[c.id] || []).length === 0 && html`<div class="muted" style=${{ fontSize: '11px' }}>Sin vehículos registrados</div>`}
+            <div class="grid2" style=${{ marginTop: '8px', gap: '6px' }}>
+              <input type="text" class="styled-input" placeholder="Marca" value=${vf.brand} onChange=${e => setVf({ ...vf, brand: e.target.value })} />
+              <input type="text" class="styled-input" placeholder="Modelo" value=${vf.model} onChange=${e => setVf({ ...vf, model: e.target.value })} />
+              <input type="number" class="styled-input" placeholder="Año" value=${vf.year} onChange=${e => setVf({ ...vf, year: e.target.value })} />
+              <input type="text" class="styled-input" placeholder="Placa" value=${vf.plate} onChange=${e => setVf({ ...vf, plate: e.target.value })} />
+            </div>
+            <button type="button" class="tool-add-btn" style=${{ marginTop: '8px' }} onClick=${() => addVehicle(c.id)} disabled=${!vf.brand.trim() && !vf.model.trim()}>Agregar vehículo</button>
+            <div class="muted" style=${{ marginTop: '8px', fontSize: '11px' }}>${c.email ? '· ' + c.email : ''} ${c.address ? '· ' + c.address : ''} ${c.notes ? '· ' + c.notes : ''}</div>
+          </div>`}
         </div>`)}
-        ${clients.length === 0 && html`<div class="empty">Sin clientes registrados.</div>`}
+        ${clients.length === 0 && !api.loading && html`<div class="empty">Sin clientes registrados.</div>`}
       </div>
     </${MicroShell}>`;
   };
 
   /* ---- 16. Notas del mecánico ---- */
   const NotesApp = ({ onBack }) => {
-    const [notes, setNotes] = useStore('ft_notes', []);
+    const [notes, api] = useApi('/api/notes');
     const [t, setT] = useState('');
     const [veh, setVeh] = useState('');
-    const add = () => { if (!t.trim()) return; setNotes(p => [{ id: uid(), t: t.trim(), veh: veh.trim(), ts: Date.now() }, ...p]); setT(''); setVeh(''); };
-    const del = (id) => setNotes(p => p.filter(n => n.id !== id));
+    const add = async () => {
+      if (!t.trim()) return;
+      try { await apiFetch('/api/notes', { method: 'POST', body: JSON.stringify({ text: t.trim(), vehicle_ref: veh.trim() }) }); setT(''); setVeh(''); api.load(); } catch (e) { alert(e.message); }
+    };
+    const del = async (id) => {
+      try { await apiFetch(`/api/notes/${id}`, { method: 'DELETE' }); api.load(); } catch (e) { alert(e.message); }
+    };
     return html`<${MicroShell} title="Notas del Mecánico" icon="BookOpen" onBack=${onBack}>
       <div class="note-form">
         <input type="text" class="styled-input" placeholder="Vehículo (opcional)" value=${veh} onChange=${e => setVeh(e.target.value)} style=${{ maxWidth: '220px' }} />
@@ -488,21 +731,26 @@
         <button type="button" class="tool-add-btn" onClick=${add} disabled=${!t.trim()}>Guardar</button>
       </div>
       <div class="note-list">
-        ${notes.map(n => html`<div class="note-item" key=${n.id}><div class="note-veh">${n.veh || 'General'} <button type="button" class="link-btn" onClick=${() => del(n.id)}>✕</button></div><p>${n.t}</p><span class="muted">${new Date(n.ts).toLocaleString('es')}</span></div>`)}
-        ${notes.length === 0 && html`<div class="empty">Sin notas.</div>`}
+        ${notes.map(n => html`<div class="note-item" key=${n.id}><div class="note-veh">${n.vehicle_ref || 'General'} <button type="button" class="link-btn" onClick=${() => del(n.id)}>✕</button></div><p>${n.text}</p><span class="muted">${new Date(n.created_at).toLocaleString('es')}</span></div>`)}
+        ${notes.length === 0 && !api.loading && html`<div class="empty">Sin notas.</div>`}
       </div>
     </${MicroShell}>`;
   };
 
   /* ---- 17. Cierre de caja ---- */
   const CashApp = ({ onBack }) => {
-    const KEY = 'ft_cash';
-    const [moves, setMoves] = useStore(KEY, []);
+    const [moves, api] = useApi('/api/cash');
     const [f, setF] = useState({ concept: '', amount: '', type: 'ingreso' });
-    const save = () => { const a = parseFloat(f.amount); if (!f.concept.trim() || isNaN(a)) return; setMoves(p => [...p, { id: uid(), concept: f.concept.trim(), amount: Math.abs(a), type: f.type, ts: Date.now() }]); setF({ concept: '', amount: '', type: 'ingreso' }); };
-    const del = (id) => setMoves(p => p.filter(m => m.id !== id));
+    const save = async () => {
+      const a = parseFloat(f.amount);
+      if (!f.concept.trim() || isNaN(a)) return;
+      try { await apiFetch('/api/cash', { method: 'POST', body: JSON.stringify({ concept: f.concept.trim(), amount: Math.abs(a), type: f.type }) }); setF({ concept: '', amount: '', type: 'ingreso' }); api.load(); } catch (e) { alert(e.message); }
+    };
+    const del = async (id) => {
+      try { await apiFetch(`/api/cash/${id}`, { method: 'DELETE' }); api.load(); } catch (e) { alert(e.message); }
+    };
     const total = moves.reduce((s, m) => s + (m.type === 'ingreso' ? m.amount : -m.amount), 0);
-    const today = moves.filter(m => new Date(m.ts).toDateString() === new Date().toDateString()).reduce((s, m) => s + (m.type === 'ingreso' ? m.amount : -m.amount), 0);
+    const today = moves.filter(m => new Date(m.created_at).toDateString() === new Date().toDateString()).reduce((s, m) => s + (m.type === 'ingreso' ? m.amount : -m.amount), 0);
     return html`<${MicroShell} title="Cierre de Caja" icon="Calculator" onBack=${onBack}>
       <div class="cash-totals">
         <div class="cash-today"><span>Hoy</span><strong>$${today.toFixed(2)}</strong></div>
@@ -517,13 +765,13 @@
         <button type="button" class="tool-add-btn" onClick=${save} disabled=${!f.concept.trim() || !f.amount}>Registrar</button>
       </div>
       <div class="cash-list">
-        ${moves.slice().reverse().map(m => html`<div class="cash-item" key=${m.id}>
+        ${moves.map(m => html`<div class="cash-item" key=${m.id}>
           <span class=${'cash-type ' + m.type}>${m.type === 'ingreso' ? '+' : '−'}</span>
           <span class="cash-concept">${m.concept}</span>
-          <span class=${'cash-amount ' + m.type}>$${m.amount.toFixed(2)}</span>
+          <span class=${'cash-amount ' + m.type}>$${Number(m.amount).toFixed(2)}</span>
           <button type="button" class="link-btn" onClick=${() => del(m.id)}>✕</button>
         </div>`)}
-        ${moves.length === 0 && html`<div class="empty">Sin movimientos.</div>`}
+        ${moves.length === 0 && !api.loading && html`<div class="empty">Sin movimientos.</div>`}
       </div>
     </${MicroShell}>`;
   };
@@ -561,39 +809,246 @@
 
   /* ---- 19. Conectar cliente ↔ mecánico ---- */
   const ConnectApp = ({ onBack }) => {
-    const [me, setMe] = useStore('ft_me', { name: '', role: 'mecanico', zone: '' });
-    const [people, setPeople] = useStore('ft_people', [
-      { id: 'p1', name: 'Carlos Méndez', role: 'mecanico', zone: 'Centro', spec: 'Inyección y bombas', phone: '0414-555-0101' },
-      { id: 'p2', name: 'Tienda Repuestos El Tigre', role: 'tienda', zone: 'Centro', spec: 'Refacciones en general', phone: '0283-555-0102' },
-      { id: 'p3', name: 'María López', role: 'cliente', zone: 'Norte', spec: 'Busca mecánico para Jetta 2008', phone: '0416-555-0103' },
-      { id: 'p4', name: 'Taller Don José', role: 'mecanico', zone: 'Sur', spec: 'Motor y transmisión', phone: '0283-555-0104' },
-    ]);
-    const save = () => { if (!me.name.trim() || !me.zone) return; setMe(me); setPeople(p => p.some(x => x.id === 'me') ? p.map(x => x.id === 'me' ? { id: 'me', name: me.name.trim(), role: me.role, zone: me.zone, spec: me.spec || '', phone: me.phone || '' } : x) : [{ id: 'me', name: me.name.trim(), role: me.role, zone: me.zone, spec: me.spec || '', phone: me.phone || '' }, ...p]); };
-    const near = people.filter(p => p.id !== 'me' && p.zone === me.zone);
-    const others = people.filter(p => p.id !== 'me' && p.zone !== me.zone);
+    const [me, setMe] = useState({ name: '', role: 'mecanico', email: '', phone: '', city: '', zone: '', address: '', lat: '', lng: '', offers: '', needs: '' });
+    const [saved, setSaved] = useState(false);
+    const [matches, setMatches] = useState([]);
+    const [matched, setMatched] = useState(false);
+    const [locBusy, setLocBusy] = useState(false);
+    const [locMsg, setLocMsg] = useState('');
+    useEffect(() => { apiFetch('/api/connect/profiles').catch(() => {}); }, []);
+    const save = async () => {
+      if (!me.name.trim() || !me.city.trim()) { alert('Nombre y ciudad son obligatorios'); return; }
+      try {
+        await apiFetch('/api/connect/profiles', { method: 'POST', body: JSON.stringify(me) });
+        setSaved(true);
+        await doMatch();
+      } catch (e) { alert(e.message); }
+    };
+    const doMatch = async () => {
+      try {
+        const qs = new URLSearchParams({ city: me.city, zone: me.zone || '', offers: me.offers || '', needs: me.needs || '' });
+        if (me.lat) qs.set('lat', me.lat);
+        if (me.lng) qs.set('lng', me.lng);
+        const res = await apiFetch('/api/connect/match?' + qs.toString());
+        setMatches(res); setMatched(true);
+      } catch (e) { alert(e.message); }
+    };
+    const useGps = () => {
+      if (!navigator.geolocation) { setLocMsg('Tu navegador no soporta GPS'); return; }
+      setLocBusy(true); setLocMsg('Obteniendo ubicación…');
+      navigator.geolocation.getCurrentPosition(async (pos) => {
+        try {
+          const { latitude: lat, longitude: lng } = pos.coords;
+          await apiFetch('/api/connect/locate', { method: 'POST', body: JSON.stringify({ lat, lng }) });
+          setMe(m => ({ ...m, lat: String(lat), lng: String(lng) }));
+          setLocMsg('Ubicación GPS capturada ✓');
+        } catch (e) { setLocMsg(e.message); }
+        setLocBusy(false);
+      }, (err) => { setLocBusy(false); setLocMsg('No se pudo obtener el GPS (' + err.message + ')'); }, { timeout: 10000 });
+    };
+    const roleLabel = (r) => r === 'mecanico' ? '🔧 Mecánico' : r === 'tienda' ? '🏪 Refaccionaria' : '🚗 Cliente';
     return html`<${MicroShell} title="Conectar Cliente ↔ Mecánico" icon="MapPin" onBack=${onBack}>
+      <div class="alert blue" style=${{ marginBottom: '12px' }}><span>Completa tu perfil con tu ubicación y lo que ofreces/buscas. Te mostramos perfiles compatibles por cercanía y similitud.</span></div>
       <div class="conn-me panel" style=${{ padding: '14px', marginBottom: '14px' }}>
         <h3 style=${{ fontSize: '12px', color: 'var(--accent)', textTransform: 'uppercase', letterSpacing: '1px', marginBottom: '8px' }}>Tu perfil</h3>
         <div class="conn-form grid2">
-          <input type="text" class="styled-input" placeholder="Nombre / taller" value=${me.name} onChange=${e => setMe({ ...me, name: e.target.value })} />
+          <input type="text" class="styled-input" placeholder="Nombre / taller *" value=${me.name} onChange=${e => setMe({ ...me, name: e.target.value })} />
           <select class="styled-input" value=${me.role} onChange=${e => setMe({ ...me, role: e.target.value })}>
             <option value="mecanico">Mecánico</option><option value="cliente">Cliente</option><option value="tienda">Refaccionaria</option>
           </select>
-          <select class="styled-input" value=${me.zone} onChange=${e => setMe({ ...me, zone: e.target.value })}>
-            <option value="">Zona…</option>${ZONES.map(z => html`<option key=${z} value=${z}>${z}</option>`)}
-          </select>
-          <input type="text" class="styled-input" placeholder="Especialidad / necesidad" value=${me.spec || ''} onChange=${e => setMe({ ...me, spec: e.target.value })} />
+          <input type="email" class="styled-input" placeholder="Correo" value=${me.email} onChange=${e => setMe({ ...me, email: e.target.value })} />
+          <input type="tel" class="styled-input" placeholder="Teléfono" value=${me.phone} onChange=${e => setMe({ ...me, phone: e.target.value })} />
+          <input type="text" class="styled-input" placeholder="Ciudad *" value=${me.city} onChange=${e => setMe({ ...me, city: e.target.value })} />
+          <input type="text" class="styled-input" placeholder="Zona / colonia" value=${me.zone} onChange=${e => setMe({ ...me, zone: e.target.value })} />
+          <input type="text" class="styled-input" style=${{ gridColumn: '1 / -1' }} placeholder="Dirección (opcional)" value=${me.address} onChange=${e => setMe({ ...me, address: e.target.value })} />
         </div>
-        <button type="button" class="tool-add-btn" style=${{ marginTop: '10px' }} onClick=${save} disabled=${!me.name.trim() || !me.zone}>Guardar perfil</button>
+        <div class="grid2" style=${{ marginTop: '8px' }}>
+          <input type="text" class="styled-input" placeholder="¿Qué ofreces? (ej. inyección, bombas, frenos)" value=${me.offers} onChange=${e => setMe({ ...me, offers: e.target.value })} />
+          <input type="text" class="styled-input" placeholder="¿Qué pides que te ofrezcan? (ej. refacciones, servicios)" value=${me.needs} onChange=${e => setMe({ ...me, needs: e.target.value })} />
+        </div>
+        <div style=${{ display: 'flex', gap: '8px', marginTop: '10px', alignItems: 'center', flexWrap: 'wrap' }}>
+          <button type="button" class="tool-add-btn" onClick=${save} disabled=${!me.name.trim() || !me.city.trim()}>Guardar perfil</button>
+          <button type="button" class="tool-add-btn" onClick=${useGps} disabled=${locBusy}>${locBusy ? '…' : '📍 Usar mi ubicación (GPS)'}</button>
+          ${me.lat && me.lng && html`<span class="muted" style=${{ fontSize: '11px' }}>lat ${me.lat}, lng ${me.lng}</span>`}
+        </div>
+        ${locMsg && html`<div class="muted" style=${{ marginTop: '6px', fontSize: '11px' }}>${locMsg}</div>`}
+        ${saved && html`<div class="alert blue" style=${{ marginTop: '10px' }}><span>Perfil guardado. Estos son tus contactos sugeridos:</span></div>`}
       </div>
-      ${me.zone && html`<div class="conn-near">
-        <h3 class="conn-title">En tu zona (${me.zone})</h3>
-        ${near.map(p => html`<div class="conn-item" key=${p.id}><strong>${p.name}</strong><span class="muted">${p.role === 'mecanico' ? '🔧 Mecánico' : p.role === 'tienda' ? '🏪 Refaccionaria' : '🚗 Cliente'} · ${p.spec || ''}</span>${p.phone && html`<a class="link-btn" href=${'tel:' + p.phone}>Llamar</a>`}</div>`)}
-        ${near.length === 0 && html`<div class="empty" style=${{ padding: '18px' }}>Aún no hay perfiles en tu zona. Comparte la app para conectar.</div>`}
+      ${matched && html`<div class="conn-near">
+        <h3 class="conn-title">Contactos sugeridos (cercanos + compatibles)</h3>
+        ${matches.filter(p => p.email !== me.email).map(p => html`<div class="conn-item" key=${p.id}>
+          <strong>${p.name}</strong>
+          <span class="muted">${roleLabel(p.role)} · ${p.city}${p.zone ? ', ' + p.zone : ''}${p.distance_km != null ? ' · a ' + p.distance_km + ' km' : ''}</span>
+          ${p.match_score > 0 && html`<span class="match-badge">★ ${p.match_score} coincidencias</span>`}
+          <span class="muted" style=${{ fontSize: '11px' }}>${p.offers ? 'Ofrece: ' + p.offers : ''}${p.needs ? ' · Busca: ' + p.needs : ''}</span>
+          ${p.phone && html`<a class="link-btn" href=${'tel:' + p.phone}>Llamar</a>`}
+        </div>`)}
+        ${matches.length === 0 && html`<div class="empty" style=${{ padding: '18px' }}>Aún no hay perfiles compatibles en tu zona. Comparte la app para conectar.</div>`}
       </div>`}
-      <div class="conn-all">
-        <h3 class="conn-title">Otros perfiles</h3>
-        ${others.map(p => html`<div class="conn-item" key=${p.id}><strong>${p.name}</strong><span class="muted">${p.role === 'mecanico' ? '🔧' : p.role === 'tienda' ? '🏪' : '🚗'} ${p.role} · Zona ${p.zone} · ${p.spec || ''}</span></div>`)}
+    </${MicroShell}>`;
+  };
+
+  /* ---- 19b. Diagnóstico rápido de PSI ---- */
+  const QuickDiagApp = ({ onBack }) => {
+    const [q, setQ] = useState('');
+    const [results, setResults] = useState([]);
+    const [sel, setSel] = useState('');
+    const [psi, setPsi] = useState('');
+    const [verdict, setVerdict] = useState(null);
+    const [saved, setSaved] = useState(false);
+    const search = async (ev) => {
+      const term = (ev?.target?.value || q).trim();
+      setQ(term);
+      if (term.length < 2) { setResults([]); return; }
+      try {
+        const rows = await apiFetch(`/api/vehicles?model=${encodeURIComponent(term)}&limit=8`);
+        setResults(Array.isArray(rows) ? rows : (rows?.rows || []));
+      } catch (e) { /* silencioso */ }
+    };
+    const run = async () => {
+      const v = results.find(x => x.id === Number(sel));
+      const measured = parseFloat(psi);
+      if (!sel || isNaN(measured) || measured <= 0) return;
+      const specMin = v ? Number(v.rail_pressure_psi_min) : null;
+      const specMax = v ? Number(v.rail_pressure_psi_max) : null;
+      let vd, reasons = [];
+      if (specMin == null || specMax == null) {
+        vd = 'NO_SPEC';
+        reasons = ['Este vehículo no tiene especificación en el catálogo. Verifica el manual de servicio y compara el valor manualmente.'];
+      } else if (measured >= specMin && measured <= specMax) {
+        vd = 'OK';
+        reasons = [`La presión medida (${measured} PSI) está dentro del rango especificado (${specMin}–${specMax} PSI).`, 'El regulador, la bomba y la línea de retorno trabajan correctamente.', 'Puedes continuar con la siguiente prueba del sistema.'];
+      } else if (measured < specMin) {
+        vd = 'LOW';
+        reasons = [`La presión medida (${measured} PSI) está por DEBAJO del mínimo (${specMin} PSI).`, 'Causas probables: cedazo o filtro de combustible tapado, bomba (pila) débil o gastada, regulador abriéndose antes de tiempo, fuga en línea de combustible o regulador, voltaje bajo en el conector de la bomba.'];
+      } else {
+        vd = 'HIGH';
+        reasons = [`La presión medida (${measured} PSI) está POR ENCIMA del máximo (${specMax} PSI).`, 'Causas probables: regulador pegado cerrado, línea de retorno obstruida o doblada, manguera de vacío del regulador sin conexión (referencia errónea).'];
+      }
+      setVerdict({ vd, reasons, v, measured });
+      setSaved(false);
+    };
+    const saveRun = async () => {
+      if (!verdict) return;
+      try {
+        await apiFetch('/api/diagnostics', { method: 'POST', body: JSON.stringify({
+          vehicle_id: verdict.v?.id || null, brand: verdict.v?.brand || null,
+          model: verdict.v?.model || null, year: null,
+          measured_psi: verdict.measured, spec_min: verdict.v?.rail_pressure_psi_min ?? null,
+          spec_max: verdict.v?.rail_pressure_psi_max ?? null, verdict: verdict.vd,
+          reasons: verdict.reasons, notes: ''
+        }) });
+        setSaved(true);
+      } catch (e) { alert(e.message); }
+    };
+    return html`<${MicroShell} title="Diagnóstico Rápido de PSI" icon="Gauge" onBack=${onBack}>
+      <div class="alert blue" style=${{ marginBottom: '12px' }}><span>Mide la presión de combustible en la flauta (riel) con la llave en ON, motor apagado. Coloca el vehículo y el valor medido para obtener el veredicto.</span></div>
+      <label class="muted" style=${{ display: 'block', fontSize: '10px', letterSpacing: '1px', textTransform: 'uppercase', marginBottom: '5px' }}>1. Busca tu vehículo</label>
+      <input type="search" class="styled-input" placeholder="Marca / modelo (ej. Corolla, Jetta, Tsuru…)" value=${q} onChange=${search} style=${{ maxWidth: '480px' }} />
+      ${results.length > 0 && html`<div class="diag-veh" style=${{ display: 'flex', flexDirection: 'column', gap: '6px', marginTop: '8px' }}>
+        ${results.map(v => html`<label key=${v.id} class="diag-opt" style=${{ display: 'flex', gap: '8px', alignItems: 'center', padding: '8px', border: '1px solid var(--border)', borderRadius: '4px', cursor: 'pointer', fontSize: '13px' }}>
+          <input type="radio" name="diag-veh" value=${v.id} checked=${sel === String(v.id)} onChange=${() => setSel(String(v.id))} />
+          <span>${v.brand} ${v.model} (${v.year_from}–${v.year_to})</span>
+          <span class="muted" style=${{ marginLeft: 'auto' }}>spec ${v.rail_pressure_psi_min}–${v.rail_pressure_psi_max} PSI</span>
+        </label>`)}
+      </div>`}
+      <label class="muted" style=${{ display: 'block', fontSize: '10px', letterSpacing: '1px', textTransform: 'uppercase', margin: '14px 0 5px' }}>2. Presión medida (PSI)</label>
+      <div style=${{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+        <input type="number" class="styled-input" placeholder="ej. 38" value=${psi} onChange=${e => setPsi(e.target.value)} style=${{ maxWidth: '160px' }} />
+        <button type="button" class="tool-add-btn" onClick=${run} disabled=${!sel || !psi}>Diagnosticar</button>
+      </div>
+      ${verdict && html`<div class="reg-verdict ${verdict.vd === 'OK' ? 'ok' : 'bad'}" style=${{ marginTop: '16px' }}>
+        <strong>${verdict.vd === 'OK' ? '✅ SISTEMA EN BUEN ESTADO' : verdict.vd === 'LOW' ? '⚠️ PRESIÓN BAJA (MAL)' : verdict.vd === 'HIGH' ? '⚠️ PRESIÓN ALTA (MAL)' : 'ℹ️ SIN ESPECIFICACIÓN'}</strong>
+        <div class="reg-answers">
+          ${verdict.reasons.map((r, i) => html`<div class="reg-a" key=${i}>• ${r}</div>`)}
+        </div>
+        <button type="button" class="tool-add-btn" style=${{ marginTop: '8px' }} onClick=${saveRun} disabled=${saved}>${saved ? 'Guardado ✓' : 'Guardar en historial'}</button>
+      </div>`}
+    </${MicroShell}>`;
+  };
+
+  /* ---- 19c. Documentos: notas de entrega y presupuestos ---- */
+  const DocumentsApp = ({ onBack }) => {
+    const [docs, api] = useApi('/api/documents');
+    const [clients, clientsApi] = useApi('/api/clients');
+    const [inventory, invApi] = useApi('/api/inventory');
+    const [show, setShow] = useState(false);
+    const [f, setF] = useState({ kind: 'entrega', client_id: '', items: [{ descr: '', qty: '1', unit_price: '' }] });
+    const setItem = (i, k, v) => setF({ ...f, items: f.items.map((it, idx) => idx === i ? { ...it, [k]: v } : it) });
+    const addItem = () => setF({ ...f, items: [...f.items, { descr: '', qty: '1', unit_price: '' }] });
+    const rmItem = (i) => setF({ ...f, items: f.items.filter((_, idx) => idx !== i) });
+    const pickInv = (i, id) => { const inv = inventory.find(x => x.id === Number(id)); setItem(i, 'descr', inv?.name || ''); setItem(i, 'unit_price', inv?.unit_price || ''); };
+    const create = async () => {
+      const items = f.items.filter(i => i.descr.trim() && Number(i.qty) > 0).map(i => ({ descr: i.descr.trim(), qty: Number(i.qty), unit_price: Number(i.unit_price) || 0 }));
+      if (!items.length) { alert('Agrega al menos un item'); return; }
+      try {
+        const res = await apiFetch('/api/documents', { method: 'POST', body: JSON.stringify({ kind: f.kind, client_id: f.client_id || null, items }) });
+        setShow(false); setF({ kind: 'entrega', client_id: '', items: [{ descr: '', qty: '1', unit_price: '' }] }); api.load();
+        window.open(`/api/documents/${res.id}/print`, '_blank');
+      } catch (e) { alert(e.message); }
+    };
+    const setStatus = async (id, st) => {
+      try { await apiFetch(`/api/documents/${id}/status`, { method: 'PUT', body: JSON.stringify({ status: st }) }); api.load(); } catch (e) { alert(e.message); }
+    };
+    const del = async (id) => {
+      if (!confirm('¿Eliminar este documento?')) return;
+      try { await apiFetch(`/api/documents/${id}`, { method: 'DELETE' }); api.load(); } catch (e) { alert(e.message); }
+    };
+    const exportCsv = async () => {
+      try { const csv = await apiFetch('/api/documents/export?format=csv'); downloadBlob('documentos.csv', csv); } catch (e) { alert(e.message); }
+    };
+    return html`<${MicroShell} title="Notas de Entrega y Presupuestos" icon="FileText" onBack=${onBack}>
+      ${api.err && html`<div class="alert"><span>${api.err}</span></div>`}
+      <div style=${{ display: 'flex', gap: '8px', marginBottom: '12px', alignItems: 'center' }}>
+        <button type="button" class="tool-add-btn" onClick=${() => setShow(!show)}>${show ? 'Cancelar' : '+ Nuevo documento'}</button>
+        <button type="button" class="link-btn" onClick=${exportCsv}>⬇ Exportar CSV</button>
+      </div>
+      ${show && html`<div class="panel" style=${{ padding: '14px', marginBottom: '12px' }}>
+        <div class="grid2">
+          <select class="styled-input" value=${f.kind} onChange=${e => setF({ ...f, kind: e.target.value })}>
+            <option value="entrega">📦 Nota de entrega</option><option value="presupuesto">🧾 Presupuesto</option>
+          </select>
+          <select class="styled-input" value=${f.client_id} onChange=${e => setF({ ...f, client_id: e.target.value })}>
+            <option value="">Cliente (opcional)…</option>${clients.map(c => html`<option key=${c.id} value=${c.id}>${c.name}</option>`)}
+          </select>
+        </div>
+        <div style=${{ marginTop: '10px', display: 'flex', flexDirection: 'column', gap: '6px' }}>
+          ${f.items.map((it, i) => html`<div key=${i} class="grid2" style=${{ gap: '6px' }}>
+            <div style=${{ display: 'flex', gap: '6px' }}>
+              <select class="styled-input" style=${{ maxWidth: '160px' }} value="" onChange=${e => pickInv(i, e.target.value)}>
+                <option value="">Inventario…</option>${inventory.map(x => html`<option key=${x.id} value=${x.id}>${x.name}</option>`)}
+              </select>
+              <input type="text" class="styled-input" placeholder="Descripción" value=${it.descr} onChange=${e => setItem(i, 'descr', e.target.value)} />
+            </div>
+            <div style=${{ display: 'flex', gap: '6px' }}>
+              <input type="number" class="styled-input" style=${{ maxWidth: '70px' }} placeholder="Cant." value=${it.qty} onChange=${e => setItem(i, 'qty', e.target.value)} />
+              <input type="number" class="styled-input" style=${{ maxWidth: '100px' }} placeholder="Precio" value=${it.unit_price} onChange=${e => setItem(i, 'unit_price', e.target.value)} />
+              <button type="button" class="link-btn" onClick=${() => rmItem(i)}>✕</button>
+            </div>
+          </div>`)}
+        </div>
+        <div style=${{ display: 'flex', gap: '8px', marginTop: '10px', alignItems: 'center' }}>
+          <button type="button" class="link-btn" onClick=${addItem}>+ Agregar item</button>
+          <button type="button" class="tool-add-btn" onClick=${create} disabled=${!f.items.some(i => i.descr.trim())}>Crear y abrir</button>
+        </div>
+      </div>`}
+      <div class="doc-list" style=${{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+        ${docs.map(d => html`<div class="order-item" key=${d.id}>
+          <div class="order-head">
+            <strong>${d.kind === 'entrega' ? '📦' : '🧾'} ${d.number}</strong>
+            ${d.client_name && html`<span class="muted">· ${d.client_name}</span>`}
+            <span class="order-date">${new Date(d.created_at).toLocaleDateString('es')}</span>
+          </div>
+          <div class="order-desc">${d.status} · Total $${Number(d.total || 0).toFixed(2)}</div>
+          <div class="order-foot">
+            <select class="order-status" value=${d.status} onChange=${e => setStatus(d.id, e.target.value)}>
+              <option>borrador</option><option>emitido</option><option>aprobado</option><option>rechazado</option><option>entregado</option>
+            </select>
+            <button type="button" class="link-btn" onClick=${() => window.open(`/api/documents/${d.id}/print`, '_blank')}>🖨 Imprimir</button>
+            <button type="button" class="link-btn" onClick=${() => del(d.id)}>eliminar</button>
+          </div>
+        </div>`)}
+        ${docs.length === 0 && !api.loading && html`<div class="empty">Sin documentos. Crea una nota de entrega o presupuesto.</div>`}
       </div>
     </${MicroShell}>`;
   };
@@ -646,6 +1101,6 @@
   window.FT_MICRO = {
     Home, DtcApp, TorqueApp, SparkApp, CrossApp, ConverterApp, VinApp,
     PressureApp, RegulatorApp, OrdersApp, InventoryApp, ClientsApp, NotesApp, CashApp,
-    ForumApp, ConnectApp, MarketApp, TimingApp,
+    ForumApp, ConnectApp, QuickDiagApp, DocumentsApp, MarketApp, TimingApp,
   };
 })();

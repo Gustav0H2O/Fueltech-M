@@ -108,3 +108,202 @@ CREATE TABLE IF NOT EXISTS vehicle_comments (
 );
 
 CREATE INDEX IF NOT EXISTS idx_vc_vehicle ON vehicle_comments(vehicle_id);
+
+-- ================================================================
+-- Tablas de negocio (multi-tenant por taller)
+-- ================================================================
+
+-- Cuentas de mecánicos (workshops)
+CREATE TABLE IF NOT EXISTS workshops (
+  id         INTEGER PRIMARY KEY,
+  email      TEXT NOT NULL UNIQUE,
+  pass_hash  TEXT NOT NULL,          -- scrypt (node:crypto), sal embebida
+  name       TEXT NOT NULL,          -- nombre del taller / dueño
+  created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+);
+
+-- Sesiones (token HMAC-signed, httpOnly cookie o Bearer)
+CREATE TABLE IF NOT EXISTS sessions (
+  token_hash  TEXT PRIMARY KEY,     -- sha256 del token
+  workshop_id INTEGER NOT NULL REFERENCES workshops(id) ON DELETE CASCADE,
+  expires_at  DATETIME NOT NULL
+);
+
+-- Inventario
+CREATE TABLE IF NOT EXISTS inventory_items (
+  id          INTEGER PRIMARY KEY,
+  workshop_id INTEGER NOT NULL REFERENCES workshops(id) ON DELETE CASCADE,
+  name        TEXT NOT NULL,
+  sku         TEXT,
+  category    TEXT,
+  qty         REAL NOT NULL DEFAULT 0,
+  min_qty     REAL NOT NULL DEFAULT 0,
+  unit_price  REAL NOT NULL DEFAULT 0,
+  notes       TEXT,
+  created_at  DATETIME DEFAULT CURRENT_TIMESTAMP
+);
+CREATE INDEX IF NOT EXISTS idx_inv_ws ON inventory_items(workshop_id);
+
+-- Movimientos de inventario (entradas/salidas/ajustes/consumo por orden)
+CREATE TABLE IF NOT EXISTS inventory_moves (
+  id         INTEGER PRIMARY KEY,
+  workshop_id INTEGER NOT NULL REFERENCES workshops(id) ON DELETE CASCADE,
+  item_id    INTEGER NOT NULL REFERENCES inventory_items(id) ON DELETE CASCADE,
+  delta      REAL NOT NULL,          -- + entrada, − salida/consumo
+  kind       TEXT NOT NULL,          -- entrada | salida | ajuste | orden
+  order_id   INTEGER,                -- FK opcional a work_orders
+  note       TEXT,
+  created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+);
+CREATE INDEX IF NOT EXISTS idx_moves_ws ON inventory_moves(workshop_id, item_id);
+
+-- Clientes (cartera)
+CREATE TABLE IF NOT EXISTS clients (
+  id          INTEGER PRIMARY KEY,
+  workshop_id INTEGER NOT NULL REFERENCES workshops(id) ON DELETE CASCADE,
+  name        TEXT NOT NULL,
+  phone       TEXT,
+  email       TEXT,
+  address     TEXT,
+  city        TEXT,
+  notes       TEXT,
+  created_at  DATETIME DEFAULT CURRENT_TIMESTAMP
+);
+CREATE INDEX IF NOT EXISTS idx_clients_ws ON clients(workshop_id);
+
+-- Vehículos de clientes (para órdenes y seguimiento)
+CREATE TABLE IF NOT EXISTS client_vehicles (
+  id          INTEGER PRIMARY KEY,
+  workshop_id INTEGER NOT NULL REFERENCES workshops(id) ON DELETE CASCADE,
+  client_id   INTEGER REFERENCES clients(id) ON DELETE CASCADE,
+  brand       TEXT,
+  model       TEXT,
+  year        INTEGER,
+  plate       TEXT,
+  vin         TEXT,
+  notes       TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_cv_ws ON client_vehicles(workshop_id, client_id);
+
+-- Órdenes de trabajo / servicios (con tipo para garantías, promociones, auditoría)
+CREATE TABLE IF NOT EXISTS work_orders (
+  id          INTEGER PRIMARY KEY,
+  workshop_id INTEGER NOT NULL REFERENCES workshops(id) ON DELETE CASCADE,
+  client_id   INTEGER REFERENCES clients(id) ON DELETE SET NULL,
+  vehicle_id  INTEGER REFERENCES client_vehicles(id) ON DELETE SET NULL,
+  type        TEXT NOT NULL DEFAULT 'reparacion',  -- reparacion|servicio|garantia|promocion|otro
+  title       TEXT NOT NULL,
+  descr       TEXT,
+  status      TEXT NOT NULL DEFAULT 'Pendiente',   -- Pendiente|En proceso|Listo|Entregado|Cancelado
+  total       REAL NOT NULL DEFAULT 0,
+  created_at  DATETIME DEFAULT CURRENT_TIMESTAMP,
+  closed_at   DATETIME
+);
+CREATE INDEX IF NOT EXISTS idx_orders_ws ON work_orders(workshop_id, status);
+
+-- Piezas/items de la orden (vincula inventario; al guardar descuenta stock)
+CREATE TABLE IF NOT EXISTS work_order_items (
+  id          INTEGER PRIMARY KEY,
+  workshop_id INTEGER NOT NULL REFERENCES workshops(id) ON DELETE CASCADE,
+  order_id    INTEGER NOT NULL REFERENCES work_orders(id) ON DELETE CASCADE,
+  item_id     INTEGER REFERENCES inventory_items(id) ON DELETE SET NULL,
+  descr       TEXT NOT NULL,
+  qty         REAL NOT NULL DEFAULT 1,
+  unit_price  REAL NOT NULL DEFAULT 0,
+  line_total  REAL NOT NULL DEFAULT 0
+);
+CREATE INDEX IF NOT EXISTS idx_woi_order ON work_order_items(order_id);
+
+-- Evidencia (fotos) por orden
+CREATE TABLE IF NOT EXISTS work_order_photos (
+  id          INTEGER PRIMARY KEY,
+  workshop_id INTEGER NOT NULL REFERENCES workshops(id) ON DELETE CASCADE,
+  order_id    INTEGER NOT NULL REFERENCES work_orders(id) ON DELETE CASCADE,
+  photo       TEXT NOT NULL,          -- data URL base64 (JPEG ~200KB)
+  caption     TEXT,
+  created_at  DATETIME DEFAULT CURRENT_TIMESTAMP
+);
+CREATE INDEX IF NOT EXISTS idx_wop_order ON work_order_photos(order_id);
+
+-- Notas de entrega y presupuestos (con items)
+CREATE TABLE IF NOT EXISTS documents (
+  id          INTEGER PRIMARY KEY,
+  workshop_id INTEGER NOT NULL REFERENCES workshops(id) ON DELETE CASCADE,
+  kind        TEXT NOT NULL,          -- entrega | presupuesto
+  number      TEXT NOT NULL,          -- correlativo por taller (ej. NE-0001 / P-0001)
+  client_id   INTEGER REFERENCES clients(id) ON DELETE SET NULL,
+  order_id    INTEGER REFERENCES work_orders(id) ON DELETE SET NULL,
+  status      TEXT NOT NULL DEFAULT 'borrador',  -- borrador|emitido|aprobado|rechazado|entregado
+  total       REAL NOT NULL DEFAULT 0,
+  created_at  DATETIME DEFAULT CURRENT_TIMESTAMP
+);
+CREATE INDEX IF NOT EXISTS idx_docs_ws ON documents(workshop_id);
+
+CREATE TABLE IF NOT EXISTS document_items (
+  id          INTEGER PRIMARY KEY,
+  workshop_id INTEGER NOT NULL REFERENCES workshops(id) ON DELETE CASCADE,
+  document_id INTEGER NOT NULL REFERENCES documents(id) ON DELETE CASCADE,
+  item_id     INTEGER REFERENCES inventory_items(id) ON DELETE SET NULL,
+  descr       TEXT NOT NULL,
+  qty         REAL NOT NULL DEFAULT 1,
+  unit_price  REAL NOT NULL DEFAULT 0,
+  line_total  REAL NOT NULL DEFAULT 0
+);
+CREATE INDEX IF NOT EXISTS idx_di_doc ON document_items(document_id);
+
+-- Perfiles de conexión cliente ↔ mecánico (ubicación + ofrezco/busco)
+CREATE TABLE IF NOT EXISTS connect_profiles (
+  id          INTEGER PRIMARY KEY,
+  email       TEXT NOT NULL UNIQUE,
+  role        TEXT NOT NULL,          -- mecanico | cliente | tienda
+  name        TEXT NOT NULL,
+  phone       TEXT,
+  city        TEXT NOT NULL,
+  zone        TEXT,
+  address     TEXT,
+  lat         REAL,                   -- opcional (GPS)
+  lng         REAL,
+  offers      TEXT,                   -- "qué ofreces"
+  needs       TEXT,                   -- "qué pides que te ofrezcan"
+  created_at  DATETIME DEFAULT CURRENT_TIMESTAMP
+);
+CREATE INDEX IF NOT EXISTS idx_conn_city ON connect_profiles(city, zone);
+
+-- Diagnóstico rápido de PSI (historial de corridas)
+CREATE TABLE IF NOT EXISTS diagnostics (
+  id          INTEGER PRIMARY KEY,
+  workshop_id INTEGER NOT NULL REFERENCES workshops(id) ON DELETE CASCADE,
+  vehicle_id  INTEGER REFERENCES vehicles(id) ON DELETE SET NULL,
+  brand       TEXT,
+  model       TEXT,
+  year        INTEGER,
+  measured_psi REAL NOT NULL,
+  spec_min    REAL,
+  spec_max    REAL,
+  verdict     TEXT NOT NULL,          -- OK | LOW | HIGH | NO_SPEC
+  reasons     TEXT,                   -- JSON array de explicaciones
+  notes       TEXT,
+  created_at  DATETIME DEFAULT CURRENT_TIMESTAMP
+);
+CREATE INDEX IF NOT EXISTS idx_diag_ws ON diagnostics(workshop_id);
+
+-- Notas del mecánico (por taller)
+CREATE TABLE IF NOT EXISTS workshop_notes (
+  id          INTEGER PRIMARY KEY,
+  workshop_id INTEGER NOT NULL REFERENCES workshops(id) ON DELETE CASCADE,
+  text        TEXT NOT NULL,
+  vehicle_ref TEXT,
+  created_at  DATETIME DEFAULT CURRENT_TIMESTAMP
+);
+CREATE INDEX IF NOT EXISTS idx_notes_ws ON workshop_notes(workshop_id);
+
+-- Movimientos de caja (ingresos/egresos)
+CREATE TABLE IF NOT EXISTS cash_moves (
+  id          INTEGER PRIMARY KEY,
+  workshop_id INTEGER NOT NULL REFERENCES workshops(id) ON DELETE CASCADE,
+  concept     TEXT NOT NULL,
+  amount      REAL NOT NULL,
+  type        TEXT NOT NULL,          -- ingreso | egreso
+  created_at  DATETIME DEFAULT CURRENT_TIMESTAMP
+);
+CREATE INDEX IF NOT EXISTS idx_cash_ws ON cash_moves(workshop_id);
